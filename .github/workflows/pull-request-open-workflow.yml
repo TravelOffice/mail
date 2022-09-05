@@ -1,0 +1,74 @@
+name: OnOpenPR
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ dev, master ]
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  ACTOR_NAME: ${{ github.event.pull_request.user.login }}
+  TF_BUCKET: ${{ secrets.TF_BUCKET }}
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # Run terraform to check the deployment in infrastructure
+  run-infrastructure-check:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        java-version: ['17']
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Install Java
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java-version }}
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      # Build serverless
+      - name: Build serverless
+        run: ./scripts/build_service.sh ${{ secrets.BUILD_ENV }}
+
+      # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
+      - name: Terraform Init
+        run: ./scripts/execute_terraform.sh ${{ secrets.BUILD_ENV }} init -backend-config "bucket=${{ secrets.TF_BUCKET }}"
+
+      # Checks that all Terraform syntax
+      - name: Terraform Validate
+        run: ./scripts/execute_terraform.sh ${{ secrets.BUILD_ENV }} validate
+
+      # Generates an execution plan for Terraform
+      - name: Terraform Plan
+        run: ./scripts/execute_terraform.sh ${{ secrets.BUILD_ENV }} plan -var="TF_BUCKET=${{ secrets.TF_BUCKET }}" -var="ENV=${{ secrets.BUILD_ENV }}"

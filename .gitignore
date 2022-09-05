@@ -1,0 +1,12 @@
+.gradle
+.idea
+### VS Code ###
+.vscode/
+
+### Terraform ###
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.lock*
+infrastructures/environments/**/main.tf
+infrastructures/environments/**/output.tf

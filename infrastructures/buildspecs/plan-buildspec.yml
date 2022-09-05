@@ -1,0 +1,31 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      # install terraform binary
+      - curl -s -qL -o terraform_install.zip https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+      - unzip terraform_install.zip -d /usr/bin/
+      - chmod +x /usr/bin/terraform
+      - n 14.19.0
+      - npm install -g typescript
+      - npm cache clean --force
+    finally:
+      - node --version
+      - terraform --version
+
+  pre_build:
+    commands:
+      - chmod +x ./scripts/*.sh
+      - ./scripts/execute_terraform.sh $BUILD_ENV init -backend-config "bucket=$TF_BUCKET"
+      - ./scripts/execute_terraform.sh $BUILD_ENV validate
+  
+  build:
+    commands:
+      - ./scripts/build_serverless.sh dev
+      - ./scripts/execute_terraform.sh $BUILD_ENV plan -var="TF_BUCKET=$TF_BUCKET" -var="ENV=$BUILD_ENV"
+
+artifacts:
+  files:
+    - '**/*'
+  enable-symlinks: yes
+
