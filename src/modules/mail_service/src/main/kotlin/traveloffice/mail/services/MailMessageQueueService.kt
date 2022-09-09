@@ -54,7 +54,7 @@ class MailMessageQueueService {
      * @exception
      */
     fun deleteMessage(receiptHandle: String) {
-        val queueUrl = this.secretManagerService.getAWSSecretValue("MAIL_SERVICE_QUEUE_NAME")
+        val queueUrl = this.secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME")
         return this.messageQueueRepository.deleteMessage(queueUrl, receiptHandle)
     }
 }

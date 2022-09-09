@@ -1,4 +1,7 @@
+variable "MIN_CAPACITY" {}
+variable "MAX_CAPACITY" {}
 variable "SERVICE_NAME" {}
+variable "ECS_CLUSTER_NAME" {}
 variable "ECS_CLUSTER_ID" {}
 variable "MAIL_TASK_ARN" {}
 variable "DESIRED_COUNT" {}
@@ -10,7 +13,7 @@ variable "ENV" {}
 variable "FEATURE_NAME" {}
 variable "TAGS" {}
 
-resource "aws_security_group" "mail" {
+resource "aws_security_group" "mail_api" {
   name_prefix = "ecs-mail-sg"
   description = "Allow all outbound traffic"
   vpc_id      = var.VPC_ID
@@ -34,22 +37,38 @@ resource "aws_security_group" "mail" {
   tags = var.TAGS
 }
 
-resource "aws_ecs_service" "app" {
-  name                   = var.SERVICE_NAME
-  cluster                = var.ECS_CLUSTER_ID
-  task_definition        = var.MAIL_TASK_ARN
-  desired_count          = var.DESIRED_COUNT
-  enable_execute_command = true
+resource "aws_ecs_service" "mail_api" {
+  name            = "${var.SERVICE_NAME}_api"
+  cluster         = var.ECS_CLUSTER_ID
+  task_definition = var.MAIL_TASK_ARN
+  desired_count   = var.DESIRED_COUNT
 
   load_balancer {
     target_group_arn = var.MAIL_TARGET_GROUP_ARN
-    container_name   = var.CONTAINER_NAME
+    container_name   = lower("${var.ENV}-${var.FEATURE_NAME}_api")
     container_port   = 8080
   }
   # For network awsvpc only
   network_configuration {
     subnets          = var.SUBNETS
-    security_groups  = [aws_security_group.mail.id]
+    security_groups  = [aws_security_group.mail_api.id]
     assign_public_ip = true
   }
+
+  capacity_provider_strategy {
+    base              = 0
+    capacity_provider = "FARGATE"
+    weight            = 100
+  }
+
+  tags = var.TAGS
+}
+
+module "MAIL_API_AUTO_SCALE" {
+  source           = "./api_auto_scale"
+  SERVICE_NAME     = aws_ecs_service.mail_api.name
+  ECS_CLUSTER_NAME = var.ECS_CLUSTER_NAME
+  MIN_CAPACITY     = var.MIN_CAPACITY
+  MAX_CAPACITY     = var.MAX_CAPACITY
+  TAGS             = var.TAGS
 }

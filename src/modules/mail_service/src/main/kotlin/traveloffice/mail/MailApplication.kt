@@ -14,10 +14,13 @@ import traveloffice.mail.exceptions.MalformedMessageEventData
 import traveloffice.mail.exceptions.UnSupportedEvent
 import traveloffice.mail.services.MailMessageQueueService
 import traveloffice.mail.services.MailService
+import traveloffice.mail.services.SecretManagerService
 
 
 @SpringBootApplication
 class MailApplication: ApplicationRunner {
+	@Autowired
+	lateinit var secretManagerService: SecretManagerService
 	@Autowired
 	lateinit var messageQueueService: MailMessageQueueService
 	@Autowired
@@ -26,7 +29,8 @@ class MailApplication: ApplicationRunner {
 	var logger: Logger = LoggerFactory.getLogger(MailApplication::class.java)
 
 	override fun run(arg0: ApplicationArguments?) {
-		while (true) {
+		val mailQueueEnabled: Boolean = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
+		while (mailQueueEnabled) {
 			try {
 				val messages = this.messageQueueService.receiveMessage()
 				if(!messages.isNullOrEmpty()) {

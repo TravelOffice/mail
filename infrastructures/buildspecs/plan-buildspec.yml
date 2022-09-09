@@ -1,4 +1,7 @@
 version: 0.2
+env:
+  variables:
+    JAVA_HOME: "/usr/lib/jvm/java-17-amazon-corretto/"
 phases:
   install:
     commands:
@@ -6,11 +9,11 @@ phases:
       - curl -s -qL -o terraform_install.zip https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
       - unzip terraform_install.zip -d /usr/bin/
       - chmod +x /usr/bin/terraform
-      - n 14.19.0
-      - npm install -g typescript
-      - npm cache clean --force
+      - apt-get update; apt-get install -y java-17-amazon-corretto-jdk
+      - update-alternatives --auto javac
+      - update-alternatives --auto java
     finally:
-      - node --version
+      - java --version
       - terraform --version
 
   pre_build:
@@ -21,7 +24,7 @@ phases:
   
   build:
     commands:
-      - ./scripts/build_serverless.sh dev
+      - ./scripts/build_service.sh $BUILD_ENV
       - ./scripts/execute_terraform.sh $BUILD_ENV plan -var="TF_BUCKET=$TF_BUCKET" -var="ENV=$BUILD_ENV"
 
 artifacts:

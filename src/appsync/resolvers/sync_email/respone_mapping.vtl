@@ -1,0 +1,11 @@
+#set( $message = "" )
+#if($ctx.result.statusCode == 200)
+  #set( $message = "Sync email successfully!" )
+#else
+  #set( $message = "Sync email failed!" )
+#end
+
+$util.toJson({
+  "message": $message,
+  "data": $utils.xml.toJsonString($ctx.result.body)
+})
