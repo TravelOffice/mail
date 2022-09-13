@@ -3,9 +3,11 @@ package traveloffice.mail.common
 class Constant {
     companion object {
         const val TENANT_INDEX = "TENANT"
-        const val USER_INDEX = "USER"
-        const val MAIL_ACCOUNT_INDEX = "MAIL_ACCOUNT"
         const val MAILBOX_INDEX = "MAILBOX"
+        const val MAIL_ACCOUNT_INDEX = "MAIL_ACCOUNT"
+        const val USER_INDEX = "USER"
+        const val MESSAGE_INDEX = "MESSAGE"
+        const val PARTITION_KEY_DELIMITER = '#'
         const val DEFAULT_MAX_NUMBER_MESSAGE = 5
         const val DEFAULT_WAIT_TIME_SECOND = 5
         const val DEFAULT_MAX_NUMBER_OF_MESSAGE = 5
@@ -17,6 +19,9 @@ class Constant {
         const val GREATER_THAN_EQUAL_MESSAGE = "should be grater than or equal to"
         const val LESS_THAN_EQUAL_MESSAGE = "should be less than or equal to"
         const val BLANK_MESSAGE = "cannot be blank"
+        const val MAIL_NEW_EMAIL_RECEIVED = "MAIL_NEW_EMAIL_RECEIVED"
+        const val MAIL_BUCKET = "MAIL_BUCKET"
+        const val MAIL_CDN = "MAIL_CDN"
         val DEFAULT_MAILBOX = arrayOf("INBOX", "SENT", "DRAFT", "DELETE", "SPAM")
     }
 }

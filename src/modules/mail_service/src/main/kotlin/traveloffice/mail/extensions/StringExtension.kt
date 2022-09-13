@@ -18,5 +18,5 @@ fun String.decrypt(secretKey: String): String {
     val aesKey: Key = SecretKeySpec(secretKey.toByteArray(), "AES")
     val encrypted = Base64.getDecoder().decode(this)
     cipher.init(Cipher.DECRYPT_MODE, aesKey)
-    return cipher.doFinal(encrypted).toString()
+    return String(cipher.doFinal(encrypted))
 }

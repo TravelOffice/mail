@@ -31,6 +31,10 @@ dependencies {
 	implementation("software.amazon.awssdk:sqs:2.17.271")
 	implementation("com.google.code.gson:gson:2.9.1")
 	implementation("com.sun.mail:javax.mail:1.6.2")
+	implementation("org.jsoup:jsoup:1.15.3")
+	implementation("tech.blueglacier:email-mime-parser:1.0.5")
+	implementation("javax.xml.bind:jaxb-api:2.4.0-b180830.0359")
+	implementation("com.squareup.okhttp3:okhttp:4.10.0")
 }
 
 tasks.withType<KotlinCompile> {

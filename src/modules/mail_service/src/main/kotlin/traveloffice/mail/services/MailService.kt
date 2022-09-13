@@ -1,22 +1,17 @@
 package traveloffice.mail.services
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
+import com.amazonaws.services.kms.model.NotFoundException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
-import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX
-import traveloffice.mail.common.Constant.Companion.ENCRYPT_SECRET_KEY
-import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
-import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
-import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
-import traveloffice.mail.common.Constant.Companion.USER_INDEX
-import traveloffice.mail.entities.*
+import traveloffice.mail.entities.MailBoxSyncStatus
+import traveloffice.mail.entities.MailMessageQueueData
 import traveloffice.mail.exceptions.FunctionNotImplemented
+import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
-import traveloffice.mail.extensions.decrypt
-import traveloffice.mail.extensions.encrypt
 import traveloffice.mail.repositories.MailRepository
 
 @Service
@@ -26,10 +21,11 @@ class MailService {
     lateinit var dynamoDBMapper: DynamoDBMapper
 
     @Autowired
-    lateinit var mailRepository: MailRepository
+    lateinit var secretManagerService: SecretManagerService
 
     @Autowired
-    lateinit var secretManagerService: SecretManagerService
+    lateinit var mailRepository: MailRepository
+
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
     /**
@@ -51,12 +47,12 @@ class MailService {
      * The method perform following steps:
      * Step 1: Get the current mail account information
      * Step 2: Get the target MailBox to sync
-     *         TODO: Currently only support mailbox INBOX
      * Step 3: Mark the sync status to SYNCING to prevent duplicate sync
      * Step 4: Try to sync new email from the last sync time
-     * Step 5: TODO: Need to implement the action to save new synced messages to DynamoDB and S3
+     * Step 5: Save the new synced messages to DynamoDB and S3
      * Step 6: Mark the sync status to SYNCED
-     * Step 7: TODO: Save the last sync time to the database
+     * Step 7: Save the last sync time to the database
+     * Step 8: Update the mailbox size
      *
      * @param data: MailMessageQueueData the event data which received from the Mail Queue
      * @return
@@ -64,38 +60,62 @@ class MailService {
      */
     @Throws(MailBoxIsStillSyncing::class, Exception::class)
     fun syncEmail(data: MailMessageQueueData) {
-        // Get the mail account information
-        val mailAccount = this.dynamoDBMapper.load(
-            MailAccount::class.java,
-            "${TENANT_INDEX}#${data.tenant}",
-            "${MAIL_ACCOUNT_INDEX}#${data.username}"
-        )
+        val tenant = data.tenant
+        val username = data.username
+        val box = data.arguments["mailbox"]?.toString()?.uppercase()
+        val account = data.arguments["mailAccount"]?.toString()
+        if (box.isNullOrEmpty() || account.isNullOrEmpty())
+            throw InvalidArguments("Missing mailbox or mail account")
 
-        // TODO: Currently only support mailbox INBOX
-        val mailBox = "INBOX"
+        // Get the mail account information
+        val mailAccount = this.mailRepository.getMailAccount(tenant, username, account)
+            ?: throw NotFoundException("Mail account [$account] not found!, tenant [$tenant] username [$username]")
+
+        // Get the mailbox information
+        val mailBox = this.mailRepository.getMailBox(mailAccount, box)
+            ?: throw NotFoundException("Mail box [$box] not found!, tenant [$tenant] username [$username] account [$account]")
 
         // Return intermediately when current MailBox is still syncing
-        if (mailAccount.syncStatus == MailBoxSyncStatus.SYNCING.toString()) {
-            throw MailBoxIsStillSyncing("MailBox is still syncing!")
+        if (mailBox.syncStatus == MailBoxSyncStatus.SYNCING.toString()) {
+            throw MailBoxIsStillSyncing("MailBox [${mailBox.name}] is still syncing!")
         }
 
         // Mark the sync status to SYNCING to prevent duplicate sync
-        mailAccount.syncStatus = MailBoxSyncStatus.SYNCING.toString()
-        this.dynamoDBMapper.save(mailAccount)
+        this.mailRepository.changeMailBoxStatus(mailBox, MailBoxSyncStatus.SYNCING)
 
         // Try to sync new email from the last sync time
         try {
-            //Decrypt password
-            val encryptionKey = this.secretManagerService.getAWSSecretValue(ENCRYPT_SECRET_KEY)
-            mailAccount.inboundPassword = mailAccount.inboundPassword.decrypt(encryptionKey)
-            mailAccount.outboundPassword = mailAccount.outboundPassword.decrypt(encryptionKey)
             val messages = this.mailRepository.getLastMailBoxSync(mailAccount, mailBox)
-            logger.info("${mailAccount.protocol} [$mailBox] found ${messages.size} new message")
+            logger.info("${mailAccount.inboundType.uppercase()} [$mailBox] found ${messages.size} new message")
+            var totalSize = 0
+            var count = 0
+            // Save Email to DynamoDB and S3
+            for (message in messages) {
+                // Convert message received from provider to email
+                val mailMessage = this.mailRepository.toEmail(mailAccount, message)
+                // Save the email information to database
+                this.mailRepository.storeEmailToDatabase(mailAccount, mailBox, mailMessage)
+                // Send the new email notification to AppSync
+                this.mailRepository.notifyNewEmailReceived(mailAccount, mailBox, mailMessage)
+                // Update the mailbox last mailbox sync time
+                (mailMessage.receivedDate ?: mailMessage.sentDate)?.let {
+                    this.mailRepository.updateMailBoxLastSyncTime(
+                        mailBox,
+                        it
+                    )
+                }
+                // Calculate the total size of new message received
+                totalSize += mailMessage.size
+                count ++
+            }
+            // Update the mailbox size, count, and unread count
+            this.mailRepository.updateMailBoxMetric(mailBox, totalSize, count, count)
         } catch (e: Exception) {
+            // TODO: handle exception before rethrow
+            logger.error("syncEmail failed: message ${e.message}")
             throw e
         } finally {
-            mailAccount.syncStatus = MailBoxSyncStatus.SYNCED.toString()
-            this.dynamoDBMapper.save(mailAccount)
+            this.mailRepository.changeMailBoxStatus(mailBox, MailBoxSyncStatus.SYNCED)
         }
     }
 }

@@ -15,6 +15,7 @@ import traveloffice.mail.exceptions.UnSupportedEvent
 import traveloffice.mail.services.MailMessageQueueService
 import traveloffice.mail.services.MailService
 import traveloffice.mail.services.SecretManagerService
+import javax.annotation.PreDestroy
 
 
 @SpringBootApplication
@@ -35,7 +36,7 @@ class MailApplication: ApplicationRunner {
 				val messages = this.messageQueueService.receiveMessage()
 				if(!messages.isNullOrEmpty()) {
 					logger.info("Receive message from message queue: ${Gson().toJson(messages)}")
-					messages.forEach {
+					messages.parallelStream().forEach {
 						this.handleMailMessageEvent(it)
 					}
 				}
@@ -71,6 +72,10 @@ class MailApplication: ApplicationRunner {
 			this.messageQueueService.deleteMessage(event.receiptHandle)
 		}
 	}
+
+	@PreDestroy
+	@Throws(java.lang.Exception::class)
+	fun onDestroy() {}
 }
 
 fun main(args: Array<String>) {

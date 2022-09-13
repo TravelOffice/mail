@@ -1,22 +1,45 @@
 package traveloffice.mail.providers
 
+import org.apache.james.mime4j.codec.DecodeMonitor
+import org.apache.james.mime4j.message.DefaultBodyDescriptorBuilder
+import org.apache.james.mime4j.parser.MimeStreamParser
+import org.apache.james.mime4j.stream.MimeConfig
+import tech.blueglacier.email.Email
+import tech.blueglacier.parser.CustomContentHandler
 import traveloffice.mail.entities.MailAccount
+import java.io.InputStream
 import java.util.*
 import javax.mail.Folder
 import javax.mail.Message
 import javax.mail.Session
 import javax.mail.Store
 
+
 abstract class MailProvider {
+    private val timeout: Long = 10000
+
     /**
      * This method perform create the mailbox property
      *
      * @param mailAccount: The mail account information.
 
-     * @return The property of the EMail.
+     * @return The property of the POP3 Mail.
      * @exception
      */
-    abstract fun getProperty(mailAccount: MailAccount): Properties
+    protected fun getProperty(mailAccount: MailAccount): Properties {
+        //create properties field
+        val properties = Properties()
+        val inboundType = mailAccount.inboundType
+        properties["mail.$inboundType.host"] = mailAccount.inboundHost
+        properties["mail.$inboundType.port"] = mailAccount.inboundPort
+        when (mailAccount.inboundSslMode) {
+            "ssl" -> properties["mail.$inboundType.ssl.enable"] = "true" //SSL
+            "starttls" -> properties["mail.$inboundType.starttls.enable"] = "true" //TLS
+        }
+        properties["mail.$inboundType.timeout"] = timeout
+        properties["mail.$inboundType.connectiontimeout"] = timeout
+        return properties
+    }
 
     /**
      * This method perform to fetch the message from the start time to the end time
@@ -28,12 +51,27 @@ abstract class MailProvider {
      * @return The list of messages.
      * @exception
      */
-    abstract fun getMessages(
-        mailAccount: MailAccount,
-        mailBox: String,
-        startDate: Date,
-        endDate: Date?
-    ): List<Message>
+    abstract fun getMessages(mailAccount: MailAccount, mailBox: String, startDate: Date, endDate: Date?): List<Message>
+
+    /**
+     * This method perform to get the mime input stream from the message
+     *
+     * @param message: The message information.
+
+     * @return The property of the InputStream.
+     * @exception
+     */
+    protected abstract fun getMessageInputStream(message: Message): InputStream
+
+    /**
+     * This method perform to get the message ID from provider
+     *
+     * @param message: The message information.
+
+     * @return The ID of the message.
+     * @exception
+     */
+    abstract fun getMessageId(message: Message): String
 
     /**
      * This method perform to fetch all message from the provider
@@ -52,14 +90,11 @@ abstract class MailProvider {
         val emailSession = Session.getDefaultInstance(properties)
         //create the IMAP/POP3 store object and connect with the pop server
         val store = emailSession.getStore(mailAccount.inboundType)
-        // TODO: Need to implement encrypt/decrypt password later
         store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
         return store
     }
 
-    protected fun emailStoreDisconnect(store: Store) {
-        return store.close()
-    }
+    protected fun emailStoreDisconnect(store: Store) = store.close()
 
     protected fun getMailBox(store: Store, mailBox: String, openMode: Int): Folder {
         //create the folder object and open it
@@ -68,9 +103,7 @@ abstract class MailProvider {
         return emailFolder
     }
 
-    protected fun closeMailBox(folder: Folder) {
-        return folder.close()
-    }
+    protected fun closeMailBox(folder: Folder) = folder.close()
 
     private fun getMessagesFromMailBox(
         properties: Properties,
@@ -81,5 +114,29 @@ abstract class MailProvider {
         val emailFolder = this.getMailBox(store, mailBox, Folder.READ_ONLY)
 
         return emailFolder.messages.toList()
+        // Keep the mail store connecting to do something with the message
+    }
+
+    /**
+     * This method perform to parse message from IMAP or POP3 message
+     *
+     * @param message: The message information.
+     *
+     * @return The parsed email information
+     * @exception
+     */
+    fun parseMessage(message: Message): Email {
+        val contentHandler = CustomContentHandler()
+
+        val mime4jParserConfig = MimeConfig.DEFAULT
+        val bodyDescriptorBuilder = DefaultBodyDescriptorBuilder()
+        val mime4jParser = MimeStreamParser(mime4jParserConfig, DecodeMonitor.SILENT, bodyDescriptorBuilder)
+        mime4jParser.isContentDecoding = true
+        mime4jParser.setContentHandler(contentHandler)
+
+        val mailIn: InputStream = this.getMessageInputStream(message)
+        mime4jParser.parse(mailIn)
+
+        return contentHandler.email
     }
 }

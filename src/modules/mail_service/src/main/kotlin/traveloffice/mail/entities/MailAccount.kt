@@ -17,79 +17,76 @@ import javax.validation.constraints.NotBlank
 
 @DynamoDBTable(tableName="mail_table")
 class MailAccount: BaseModel() {
+    @DynamoDBAttribute(attributeName = "email")
     @Email(message = INVALID_MESSAGE)
     lateinit var email: String
-        @DynamoDBAttribute(attributeName = "email")
-        get
+
+    @DynamoDBAttribute(attributeName = "name")
     @NotBlank(message = REQUIRED_MESSAGE)
     lateinit var name: String
-        @DynamoDBAttribute(attributeName = "name")
-        get
+
+    @DynamoDBAttribute(attributeName = "protocol")
     @OneOf(array = ["imap", "pop3"], message = "$ONE_OF_MESSAGE [imap, pop3]")
     lateinit var protocol: String
-        @DynamoDBAttribute(attributeName = "protocol")
-        get
+
     val inboundType: String
         @DynamoDBIgnore
         get() {
             return if (inboundSslMode == "ssl") "${protocol}s"
                 else protocol
         }
+
+    @DynamoDBAttribute(attributeName = "inboundHost")
     @NotBlank(message = REQUIRED_MESSAGE)
     lateinit var inboundHost: String
-        @DynamoDBAttribute(attributeName = "inboundHost")
-        get
 
+    @DynamoDBAttribute(attributeName = "inboundPort")
     @Min(value = 25, message = "$GREATER_THAN_EQUAL_MESSAGE 25")
     @Max(value = 995, message = "$LESS_THAN_EQUAL_MESSAGE 995")
     var inboundPort: Int = 993
-        @DynamoDBAttribute(attributeName = "inboundPort")
-        get
+
+    @DynamoDBAttribute(attributeName = "inboundSslMode")
     @OneOf(array = ["none", "ssl", "tls"], message = "$ONE_OF_MESSAGE [none, ssl, tls]")
     lateinit var inboundSslMode: String
-        @DynamoDBAttribute(attributeName = "inboundSslMode")
-        get
+
+    @DynamoDBAttribute(attributeName = "inboundUser")
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var inboundUser: String
-        @DynamoDBAttribute(attributeName = "inboundUser")
-        get
+
+    @DynamoDBAttribute(attributeName = "inboundPassword")
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var inboundPassword: String
-        @DynamoDBAttribute(attributeName = "inboundPassword")
-        get
+
+    @DynamoDBAttribute(attributeName = "outboundHost")
     @NotBlank(message = REQUIRED_MESSAGE)
     lateinit var outboundHost: String
-        @DynamoDBAttribute(attributeName = "outboundHost")
-        get
+
+    @DynamoDBAttribute(attributeName = "outboundPort")
     @Min(value = 25, message = "$GREATER_THAN_EQUAL_MESSAGE 25")
     @Max(value = 995, message = "$LESS_THAN_EQUAL_MESSAGE 995")
     var outboundPort: Int = 25
-        @DynamoDBAttribute(attributeName = "outboundPort")
-        get
+
+    @DynamoDBAttribute(attributeName = "outboundSslMode")
     @OneOf(array = ["none", "ssl", "tls"], message = "$ONE_OF_MESSAGE [none, ssl, tls]")
     lateinit var outboundSslMode: String
-        @DynamoDBAttribute(attributeName = "outboundSslMode")
-        get
+
+    @DynamoDBAttribute(attributeName = "outboundUser")
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var outboundUser: String
-        @DynamoDBAttribute(attributeName = "outboundUser")
-        get
+
+    @DynamoDBAttribute(attributeName = "outboundPassword")
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var outboundPassword: String
-        @DynamoDBAttribute(attributeName = "outboundPassword")
-        get
+
+    @DynamoDBAttribute(attributeName = "signature")
     var signature: String? = null
-        @DynamoDBAttribute(attributeName = "signature")
-        get
-    var lastMailboxSync: Long? = null
-        @DynamoDBAttribute(attributeName = "lastMailboxSync")
-        get
-    var syncStatus: String = "SYNCED"
-        @DynamoDBAttribute(attributeName = "syncStatus")
-        get
+
+    @DynamoDBAttribute(attributeName = "provider")
     @OneOf(array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"], message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]")
     lateinit var provider: String
-        @DynamoDBAttribute(attributeName = "provider")
-        get
-}
 
+    @DynamoDBIgnore
+    lateinit var tenant: String
+    @DynamoDBIgnore
+    lateinit var username: String
+}
