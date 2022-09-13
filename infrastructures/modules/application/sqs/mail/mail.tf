@@ -21,6 +21,10 @@ output "mail_queue_arn" {
   value = aws_sqs_queue.mail_queue_arn.arn
 }
 
+output "mail_queue_name" {
+  value = aws_sqs_queue.mail_queue_arn.name
+}
+
 output "mail_queue_url" {
   value = aws_sqs_queue.mail_queue_arn.url
 }

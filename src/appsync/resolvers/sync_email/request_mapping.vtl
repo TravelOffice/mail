@@ -1,0 +1,32 @@
+#set( $tenant = "" )
+#set( $username = "" )
+#if( $context.identity.resolverContext )
+  ## Lambda authorizer
+  #set( $tenant = $context.identity.resolverContext.tenant )
+  #set( $username = $context.identity.resolverContext.username )
+#else
+  $util.error('VerifyPage: Missing identifying information!')
+#end
+
+#set( $payload = {
+  "tenant" : $tenant,
+  "username" : $username,
+  "action" : "syncMessage",
+  "data" : $ctx.arguments.data
+})
+#set($action = "Action=SendMessage")
+#set($version = "Version=2012-11-05")
+#set($queueurl = "QueueUrl=${MailQueueUrl}")
+#set($msgbody = "MessageBody=$util.urlEncode($payload)")
+
+{
+  "version": "2018-05-29",
+  "method": "POST",
+  "resourcePath": "/",
+  "params": {
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },	
+    "body": "$action&$version&$queueurl&$msgbody"
+  }
+}

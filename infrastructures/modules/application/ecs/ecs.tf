@@ -6,12 +6,14 @@ variable "CUSTOM_POLICIES" {
 variable "AWS_POLICIES" {
   default = []
 }
-variable "MAIL_TASK_ENV" {}
+variable "MAIL_QUEUE_TASK_ENV" {}
+variable "MAIL_API_TASK_ENV" {}
 variable "AWS_REGION" {}
 variable "TAGS" {}
 variable "MAIL_TARGET_GROUP_ARN" {}
 variable "SUBNETS" {}
 variable "VPC_ID" {}
+variable "MAIL_SERVICE_QUEUE_NAME" {}
 
 locals {
   cluster_name = "${upper("${var.ENV}-${var.FEATURE_NAME}")}-CLUSTER"
@@ -19,7 +21,7 @@ locals {
 
 module "ECS_CLUSTER" {
   source  = "terraform-aws-modules/ecs/aws"
-  version = "4.0.1"
+  version = "4.1.1"
 
   cluster_name = local.cluster_name
 
@@ -86,27 +88,30 @@ module "ROLE" {
   TAGS               = var.TAGS
 }
 
-module "ECS_MAIL_TASK_DEFINITION" {
+module "ECS_MAIL_API_TASK_DEFINITION" {
   source        = "./task_definition/mail"
-  TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}")
+  TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}_api")
   TASK_ROLE_ARN = module.ROLE.arn
   IMAGE_URI     = module.ECS_MAIL_DOCKER_IMAGE.image_uri
   TASK_CPU      = 256
   TASK_RAM      = 512
-  MAIL_TASK_ENV = var.MAIL_TASK_ENV
+  MAIL_TASK_ENV = var.MAIL_API_TASK_ENV
   AWS_REGION    = var.AWS_REGION
   ENV           = var.ENV
   TAGS          = var.TAGS
 }
 
-module "ECS_MAIL_SERVICE" {
-  source                = "./service/mail"
+module "ECS_MAIL_API_SERVICE" {
+  source                = "./service/mail_api_service"
   ENV                   = var.ENV
   FEATURE_NAME          = var.FEATURE_NAME
   SERVICE_NAME          = "${var.ENV}-${var.FEATURE_NAME}-service"
   ECS_CLUSTER_ID        = module.ECS_CLUSTER.cluster_id
-  MAIL_TASK_ARN         = module.ECS_MAIL_TASK_DEFINITION.task_arn
+  ECS_CLUSTER_NAME      = module.ECS_CLUSTER.cluster_name
+  MAIL_TASK_ARN         = module.ECS_MAIL_API_TASK_DEFINITION.task_arn
   DESIRED_COUNT         = 1
+  MIN_CAPACITY          = 1
+  MAX_CAPACITY          = 5
   MAIL_TARGET_GROUP_ARN = var.MAIL_TARGET_GROUP_ARN
   CONTAINER_NAME        = lower("${var.ENV}-${var.FEATURE_NAME}")
   SUBNETS               = var.SUBNETS
@@ -114,15 +119,38 @@ module "ECS_MAIL_SERVICE" {
   TAGS                  = var.TAGS
 }
 
+module "ECS_MAIL_QUEUE_TASK_DEFINITION" {
+  source        = "./task_definition/mail"
+  TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}_queue")
+  TASK_ROLE_ARN = module.ROLE.arn
+  IMAGE_URI     = module.ECS_MAIL_DOCKER_IMAGE.image_uri
+  TASK_CPU      = 256
+  TASK_RAM      = 512
+  MAIL_TASK_ENV = var.MAIL_QUEUE_TASK_ENV
+  AWS_REGION    = var.AWS_REGION
+  ENV           = var.ENV
+  TAGS          = var.TAGS
+}
+
+module "ECS_MAIL_QUEUE_SERVICE" {
+  source                  = "./service/mail_queue_service"
+  ENV                     = var.ENV
+  FEATURE_NAME            = var.FEATURE_NAME
+  SERVICE_NAME            = "${var.ENV}-${var.FEATURE_NAME}-service"
+  ECS_CLUSTER_ID          = module.ECS_CLUSTER.cluster_id
+  ECS_CLUSTER_NAME        = module.ECS_CLUSTER.cluster_name
+  MAIL_TASK_ARN           = module.ECS_MAIL_QUEUE_TASK_DEFINITION.task_arn
+  MAIL_SERVICE_QUEUE_NAME = var.MAIL_SERVICE_QUEUE_NAME
+  DESIRED_COUNT           = 0
+  MIN_CAPACITY            = 0
+  MAX_CAPACITY            = 5
+  CONTAINER_NAME          = lower("${var.ENV}-${var.FEATURE_NAME}")
+  SUBNETS                 = var.SUBNETS
+  VPC_ID                  = var.VPC_ID
+  TAGS                    = var.TAGS
+}
+
 
 output "name" {
-  value = local.cluster_name
-}
-
-output "mail_task_definition_arn" {
-  value = module.ECS_MAIL_TASK_DEFINITION.task_arn
-}
-
-output "task_definition_name" {
-  value = "${var.ENV}-${var.FEATURE_NAME}"
+  value = module.ECS_CLUSTER.cluster_name
 }
