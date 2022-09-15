@@ -4,7 +4,7 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
 
 @DynamoDBTable(tableName = "mail_table")
-class MailBox {
+class MailBox: BaseModel() {
     lateinit var name: String
         @DynamoDBAttribute(attributeName = "name")
         get

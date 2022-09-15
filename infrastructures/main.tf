@@ -6,9 +6,10 @@ locals {
   remote_feature_name = "base_infrastructure"
   env_vars = {
     standard_vars = {
-      ENV               = var.ENV
-      AWS_REGION        = var.AWS_REGION
-      SECRET_MANAGER_ID = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.secret_manager.id
+      ENV                                                    = var.ENV
+      AWS_REGION                                             = var.AWS_REGION
+      SECRET_MANAGER_ID                                      = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.secret_manager.id
+      "spring.security.oauth2.resourceserver.jwt.issuer-uri" = "https://cognito-idp.${var.AWS_REGION}.amazonaws.com/${module.REMOTE_STATE.STATE.COMMON_CONFIG.cognito.user_pool.id}"
     }
   }
 
