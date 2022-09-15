@@ -1,12 +1,10 @@
 package traveloffice.mail.providers
 
-import org.springframework.stereotype.Repository
 import traveloffice.mail.extensions.between
 import traveloffice.mail.entities.MailAccount
 import java.util.*
 import javax.mail.Message
 
-@Repository
 class POP3Provider : MailProvider() {
 
     /**
@@ -53,7 +51,7 @@ class POP3Provider : MailProvider() {
         val filterMessages = mutableListOf<Message>()
         val maxDate = endDate ?: Date()
         for(i in messages.size - 1 downTo 0) {
-            var message = messages[i]
+            val message = messages[i]
             if (!message.sentDate.between(startDate, maxDate)) {
                 break
             }

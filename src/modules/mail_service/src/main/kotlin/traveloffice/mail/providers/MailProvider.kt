@@ -72,7 +72,7 @@ abstract class MailProvider {
         return folder.close()
     }
 
-    protected fun getMessagesFromMailBox(
+    private fun getMessagesFromMailBox(
         properties: Properties,
         mailBox: String,
         mailAccount: MailAccount

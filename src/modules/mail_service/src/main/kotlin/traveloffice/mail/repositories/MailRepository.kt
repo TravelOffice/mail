@@ -6,10 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Repository
 import traveloffice.mail.entities.MailAccount
-import traveloffice.mail.entities.MailInboundType
 import traveloffice.mail.exceptions.UnSupportedInboxType
-import traveloffice.mail.providers.IMAPProvider
-import traveloffice.mail.providers.POP3Provider
+import traveloffice.mail.providers.MailProviderFactory
 import java.util.*
 import javax.mail.Message
 
@@ -17,10 +15,7 @@ import javax.mail.Message
 @DependsOn(value = ["SecretManager"])
 class MailRepository {
     @Autowired
-    lateinit var imapProvider: IMAPProvider
-
-    @Autowired
-    lateinit var pop3Provider: POP3Provider
+    lateinit var mailProviderFactory: MailProviderFactory
 
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
@@ -40,34 +35,15 @@ class MailRepository {
      */
     fun getLastMailBoxSync(mailAccount: MailAccount, mailBox: String): List<Message> {
         logger.info("getLastMailBoxSync MailBox[$mailBox] with MailAccount [$mailAccount]")
-        when (mailAccount.inboundType) {
-            MailInboundType.pop3.toString(), MailInboundType.pop3s.toString() -> {
-                val lastMailboxSync = mailAccount.lastMailboxSync
-                return if (lastMailboxSync == null) {
-                    // Get all message for the first sync
-                    this.pop3Provider.getMessages(mailAccount, mailBox)
-                } else {
-                    val lastSync = Date(lastMailboxSync)
-                    // Get all message from the last sync to now
-                    this.pop3Provider.getMessages(mailAccount, mailBox, lastSync, null)
-                }
-            }
-
-            MailInboundType.imap.toString(), MailInboundType.imaps.toString() -> {
-                val lastMailboxSync = mailAccount.lastMailboxSync
-                return if (lastMailboxSync == null) {
-                    // Get all message for the first sync
-                    this.imapProvider.getMessages(mailAccount, mailBox)
-                } else {
-                    val lastSync = Date(lastMailboxSync)
-                    // Get all message from the last sync to now
-                    this.imapProvider.getMessages(mailAccount, mailBox, lastSync, null)
-                }
-            }
-
-            else -> {
-                throw UnSupportedInboxType("Unsupported action event ${mailAccount.inboundType}")
-            }
+        val mailProvider = mailProviderFactory.makeProvider(mailAccount.protocol)
+        val lastMailboxSync = mailAccount.lastMailboxSync
+        return if (lastMailboxSync == null) {
+            // Get all message for the first sync
+            mailProvider.getMessages(mailAccount, mailBox)
+        } else {
+            val lastSync = Date(lastMailboxSync)
+            // Get all message from the last sync to now
+            mailProvider.getMessages(mailAccount, mailBox, lastSync, null)
         }
     }
 }

@@ -6,13 +6,17 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX
+import traveloffice.mail.common.Constant.Companion.ENCRYPT_SECRET_KEY
+import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
-import traveloffice.mail.entities.MailAccount
-import traveloffice.mail.entities.MailBoxSyncStatus
-import traveloffice.mail.entities.MailMessageQueueData
+import traveloffice.mail.common.Constant.Companion.USER_INDEX
+import traveloffice.mail.entities.*
 import traveloffice.mail.exceptions.FunctionNotImplemented
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
+import traveloffice.mail.extensions.decrypt
+import traveloffice.mail.extensions.encrypt
 import traveloffice.mail.repositories.MailRepository
 
 @Service
@@ -23,6 +27,9 @@ class MailService {
 
     @Autowired
     lateinit var mailRepository: MailRepository
+
+    @Autowired
+    lateinit var secretManagerService: SecretManagerService
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
     /**
@@ -78,8 +85,12 @@ class MailService {
 
         // Try to sync new email from the last sync time
         try {
+            //Decrypt password
+            val encryptionKey = this.secretManagerService.getAWSSecretValue(ENCRYPT_SECRET_KEY)
+            mailAccount.inboundPassword = mailAccount.inboundPassword.decrypt(encryptionKey)
+            mailAccount.outboundPassword = mailAccount.outboundPassword.decrypt(encryptionKey)
             val messages = this.mailRepository.getLastMailBoxSync(mailAccount, mailBox)
-            logger.info("${mailAccount.inboundType.uppercase()} [$mailBox] found ${messages.size} new message")
+            logger.info("${mailAccount.protocol} [$mailBox] found ${messages.size} new message")
         } catch (e: Exception) {
             throw e
         } finally {
