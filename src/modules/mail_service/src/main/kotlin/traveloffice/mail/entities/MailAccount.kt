@@ -1,11 +1,12 @@
 package traveloffice.mail.entities
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
 import traveloffice.mail.common.Constant.Companion.BLANK_MESSAGE
-import traveloffice.mail.common.Constant.Companion.GREATER_THEN_EQUAL_MESSAGE
+import traveloffice.mail.common.Constant.Companion.GREATER_THAN_EQUAL_MESSAGE
 import traveloffice.mail.common.Constant.Companion.INVALID_MESSAGE
-import traveloffice.mail.common.Constant.Companion.LESS_THEN_EQUAL_MESSAGE
+import traveloffice.mail.common.Constant.Companion.LESS_THAN_EQUAL_MESSAGE
 import traveloffice.mail.common.Constant.Companion.ONE_OF_MESSAGE
 import traveloffice.mail.common.Constant.Companion.REQUIRED_MESSAGE
 import traveloffice.mail.validators.OneOf
@@ -24,15 +25,12 @@ class MailAccount: BaseModel() {
     lateinit var name: String
         @DynamoDBAttribute(attributeName = "name")
         get
-    val authMethod: String = "username/password"
-        @DynamoDBAttribute(attributeName = "authMethod")
-        get
     @OneOf(array = ["imap", "pop3"], message = "$ONE_OF_MESSAGE [imap, pop3]")
     lateinit var protocol: String
         @DynamoDBAttribute(attributeName = "protocol")
         get
     val inboundType: String
-        @DynamoDBAttribute(attributeName = "inboundType")
+        @DynamoDBIgnore
         get() {
             return if (inboundSslMode == "ssl") "${protocol}s"
                 else protocol
@@ -42,9 +40,9 @@ class MailAccount: BaseModel() {
         @DynamoDBAttribute(attributeName = "inboundHost")
         get
 
-    @Min(value = 25, message = "$GREATER_THEN_EQUAL_MESSAGE 20")
-    @Max(value = 995, message = "$LESS_THEN_EQUAL_MESSAGE 995")
-    lateinit var inboundPort: Number
+    @Min(value = 25, message = "$GREATER_THAN_EQUAL_MESSAGE 25")
+    @Max(value = 995, message = "$LESS_THAN_EQUAL_MESSAGE 995")
+    var inboundPort: Int = 993
         @DynamoDBAttribute(attributeName = "inboundPort")
         get
     @OneOf(array = ["none", "ssl", "tls"], message = "$ONE_OF_MESSAGE [none, ssl, tls]")
@@ -60,13 +58,12 @@ class MailAccount: BaseModel() {
         @DynamoDBAttribute(attributeName = "inboundPassword")
         get
     @NotBlank(message = REQUIRED_MESSAGE)
-
     lateinit var outboundHost: String
         @DynamoDBAttribute(attributeName = "outboundHost")
         get
-    @Min(value = 25, message = "$GREATER_THEN_EQUAL_MESSAGE 25")
-    @Max(value = 995, message = "$LESS_THEN_EQUAL_MESSAGE 995")
-    lateinit var outboundPort: Number
+    @Min(value = 25, message = "$GREATER_THAN_EQUAL_MESSAGE 25")
+    @Max(value = 995, message = "$LESS_THAN_EQUAL_MESSAGE 995")
+    var outboundPort: Int = 25
         @DynamoDBAttribute(attributeName = "outboundPort")
         get
     @OneOf(array = ["none", "ssl", "tls"], message = "$ONE_OF_MESSAGE [none, ssl, tls]")
@@ -87,7 +84,7 @@ class MailAccount: BaseModel() {
     var lastMailboxSync: Long? = null
         @DynamoDBAttribute(attributeName = "lastMailboxSync")
         get
-    lateinit var syncStatus: String
+    var syncStatus: String = "SYNCED"
         @DynamoDBAttribute(attributeName = "syncStatus")
         get
     @OneOf(array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"], message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]")
