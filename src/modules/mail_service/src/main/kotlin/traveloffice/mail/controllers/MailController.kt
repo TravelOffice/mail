@@ -1,25 +1,41 @@
 package traveloffice.mail.controllers
 
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.validation.FieldError
 import org.springframework.validation.ObjectError
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.*
 import traveloffice.mail.entities.MailAccount
+import traveloffice.mail.entities.ResponseBody
+import traveloffice.mail.extensions.getUser
+import traveloffice.mail.services.MailService
+import java.lang.Exception
 import java.util.function.Consumer
 import javax.validation.Valid
 
+
 @RestController
 class MailController {
+    @Autowired
+    lateinit var mailService: MailService
+
     @GetMapping("/healthcheck")
     fun healthCheck(): ResponseEntity<String> {
         return ResponseEntity.ok("OK")
     }
 
     @PostMapping("/link-email")
-    fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<String> {
-        TODO("Method not implemented yet")
+    fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<ResponseBody<MailAccount>> {
+        return try {
+            val authenticatedUser = SecurityContextHolder.getContext().getUser()
+            mailService.linkEmail(mailAccount, authenticatedUser)
+            ResponseEntity.ok(ResponseBody(code = "SUCCESS", data = mailAccount, message = "Link successfully"))
+        } catch (e: Exception) {
+            ResponseEntity.ok(ResponseBody(code = "FAILED", message = e.message.toString()))
+        }
     }
 
     @PostMapping("/sendEmail")

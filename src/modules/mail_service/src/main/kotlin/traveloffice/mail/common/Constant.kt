@@ -7,7 +7,6 @@ class Constant {
         const val MAIL_ACCOUNT_INDEX = "MAIL_ACCOUNT"
         const val USER_INDEX = "USER"
         const val MESSAGE_INDEX = "MESSAGE"
-        const val PARTITION_KEY_DELIMITER = '#'
         const val DEFAULT_MAX_NUMBER_MESSAGE = 5
         const val DEFAULT_WAIT_TIME_SECOND = 5
         const val DEFAULT_MAX_NUMBER_OF_MESSAGE = 5
@@ -23,5 +22,8 @@ class Constant {
         const val MAIL_BUCKET = "MAIL_BUCKET"
         const val MAIL_CDN = "MAIL_CDN"
         val DEFAULT_MAILBOX = arrayOf("INBOX", "SENT", "DRAFT", "DELETE", "SPAM")
+        const val TESTING_MAIL_SUBJECT = "iTAB Test Message"
+        const val TESTING_MAIL_CONTEXT = "This is an e-mail message sent automatically by iTAB while testing the settings for your account."
+
     }
 }

@@ -85,8 +85,9 @@ class MailAccount: BaseModel() {
     @OneOf(array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"], message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]")
     lateinit var provider: String
 
-    @DynamoDBIgnore
+    @DynamoDBAttribute(attributeName = "tenant")
     lateinit var tenant: String
-    @DynamoDBIgnore
+
+    @DynamoDBAttribute(attributeName = "username")
     lateinit var username: String
 }

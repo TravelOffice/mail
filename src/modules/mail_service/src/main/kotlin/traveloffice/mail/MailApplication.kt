@@ -8,6 +8,9 @@ import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
+import org.springframework.context.annotation.Bean
+import org.springframework.web.servlet.config.annotation.CorsRegistry
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import traveloffice.mail.entities.MailMessageQueueAction
 import traveloffice.mail.entities.MailMessageQueueEvent
 import traveloffice.mail.exceptions.MalformedMessageEventData
@@ -28,6 +31,15 @@ class MailApplication: ApplicationRunner {
 	lateinit var mailService: MailService
 
 	var logger: Logger = LoggerFactory.getLogger(MailApplication::class.java)
+
+	@Bean
+	fun corsConfigurer(): WebMvcConfigurer? {
+		return object : WebMvcConfigurer {
+			override fun addCorsMappings(registry: CorsRegistry) {
+				registry.addMapping("*").allowedOrigins("*")
+			}
+		}
+	}
 
 	override fun run(arg0: ApplicationArguments?) {
 		val mailQueueEnabled: Boolean = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
