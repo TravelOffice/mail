@@ -88,7 +88,7 @@ abstract class MailProvider {
 
     protected fun emailStoreConnect(properties: Properties, mailAccount: MailAccount): Store {
         val emailSession = Session.getDefaultInstance(properties)
-        //create the IMAP/POP3 store object and connect with the pop server
+        // Create the IMAP/POP3 store object and connect with the pop server
         val store = emailSession.getStore(mailAccount.inboundType)
         store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
         return store
@@ -138,5 +138,16 @@ abstract class MailProvider {
         mime4jParser.parse(mailIn)
 
         return contentHandler.email
+    }
+
+    /**
+     * This method perform to validate the incoming server by connecting to mail server
+     * @param mailAccount The mail account information
+     * @return void
+     */
+    fun validateIncomingServer(mailAccount: MailAccount) {
+        val properties = this.getProperty(mailAccount)
+        val store = this.emailStoreConnect(properties, mailAccount)
+        store.close()
     }
 }

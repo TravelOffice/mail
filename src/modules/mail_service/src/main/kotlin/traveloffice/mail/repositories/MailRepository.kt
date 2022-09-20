@@ -12,6 +12,7 @@ import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
 import tech.blueglacier.email.HtmlEmailBody
+import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.ENCRYPT_SECRET_KEY
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
@@ -20,13 +21,18 @@ import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.MAIL_NEW_EMAIL_RECEIVED
 import traveloffice.mail.common.Constant.Companion.MESSAGE_INDEX
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
+import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_CONTEXT
+import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_SUBJECT
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.entities.*
+import traveloffice.mail.exceptions.MailAccountWasLinked
 import traveloffice.mail.exceptions.UnSupportedInboxType
 import traveloffice.mail.extensions.decrypt
+import traveloffice.mail.extensions.encrypt
 import traveloffice.mail.providers.AppSyncProvider
 import traveloffice.mail.providers.MailProviderFactory
 import traveloffice.mail.providers.S3Provider
+import traveloffice.mail.providers.SMTPProvider
 import traveloffice.mail.services.SecretManagerService
 import java.net.URLEncoder
 import java.util.*
@@ -37,19 +43,22 @@ import javax.mail.internet.InternetAddress
 @DependsOn(value = ["SecretManager"])
 class MailRepository {
     @Autowired
+    lateinit var dynamoDBMapper: DynamoDBMapper
+
+    @Autowired
     lateinit var mailProviderFactory: MailProviderFactory
 
     @Autowired
     lateinit var secretManagerService: SecretManagerService
 
     @Autowired
-    lateinit var dynamoDBMapper: DynamoDBMapper
-
-    @Autowired
     lateinit var appSyncProvider: AppSyncProvider
 
     @Autowired
     lateinit var s3Provider: S3Provider
+
+    @Autowired
+    lateinit var smtpProvider: SMTPProvider
 
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
@@ -143,13 +152,54 @@ class MailRepository {
      * @return The list of EmailAddress.
      * @exception
      */
-    private fun getAddressFromHeader(headerValue: String?): List<EmailAddress>? {
-        if (headerValue.isNullOrEmpty()) return null
+    private fun getAddressFromHeader(headerValue: String?): List<EmailAddress> {
+        if (headerValue.isNullOrEmpty()) return emptyList()
         return InternetAddress.parse(headerValue).map {
             val emailAddress = EmailAddress()
             emailAddress.address = it.address
             emailAddress.personal = it.personal ?: null
             return@map emailAddress
+        }
+    }
+
+    /**
+     * This method to validate mail account information
+     *
+     * @param mailAccount The mail account information
+     * @return void
+     */
+    fun validateMailAccount(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser) {
+        logger.info("Validate information of MailAccount [$mailAccount]")
+        val mailProvider = mailProviderFactory.makeProvider(mailAccount.protocol)
+        // Validate existing email
+        this.checkExistingAccount(mailAccount, authenticatedUser)
+        // Validate incoming server
+        mailProvider.validateIncomingServer(mailAccount)
+        // Validate outgoing server
+        val mailMessage = MailMessage()
+        val emailAddress = EmailAddress.Builder().setEmailAddress(mailAccount.email).build()
+        mailMessage.to = listOf(emailAddress)
+        mailMessage.from = listOf(emailAddress)
+        mailMessage.subject = TESTING_MAIL_SUBJECT
+        mailMessage.htmlContent = TESTING_MAIL_CONTEXT
+        smtpProvider.sendMail(mailAccount, mailMessage)
+    }
+
+    /**
+     * This method to check the mail account is exist or not
+     *
+     * @param mailAccount The mail account information
+     * @param authenticatedUser The authenticated user information
+     * @exception MailAccountWasLinked
+     */
+    private fun checkExistingAccount(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser) {
+        val pk = "$TENANT_INDEX#${authenticatedUser.tenant}#$USER_INDEX#${authenticatedUser.username}"
+        val sk = "$MAIL_ACCOUNT_INDEX#${mailAccount.email}"
+        val result = this.dynamoDBMapper.load(
+            MailAccount::class.java, pk, sk
+        )
+        if (result != null) {
+            throw MailAccountWasLinked("Your account is already linked")
         }
     }
 
@@ -216,10 +266,7 @@ class MailRepository {
     fun getMailBox(mailAccount: MailAccount, mailBox: String): MailBox? {
         return this.dynamoDBMapper.load(
             MailBox::class.java,
-            "${TENANT_INDEX}#${mailAccount.tenant}#" +
-                    "${USER_INDEX}#${mailAccount.username}#" +
-                    "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" +
-                    MAILBOX_INDEX,
+            "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + MAILBOX_INDEX,
             "$MAILBOX_INDEX#${mailBox}"
         )
     }
@@ -235,10 +282,7 @@ class MailRepository {
      */
     fun storeEmailToDatabase(mailAccount: MailAccount, mailBox: MailBox, mailMessage: MailMessage) {
         mailMessage.pk =
-            "${TENANT_INDEX}#${mailAccount.tenant}#" +
-                    "${USER_INDEX}#${mailAccount.username}#" +
-                    "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" +
-                    "${MAILBOX_INDEX}#${mailBox.name}"
+            "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + "${MAILBOX_INDEX}#${mailBox.name}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
         mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBox.name}"
         return this.dynamoDBMapper.save(mailMessage)
@@ -373,8 +417,7 @@ class MailRepository {
      */
     private fun updateMailBox(mailBox: MailBox) {
         val config = DynamoDBMapperConfig.builder()
-            .withSaveBehavior(DynamoDBMapperConfig.SaveBehavior.UPDATE_SKIP_NULL_ATTRIBUTES)
-            .build()
+            .withSaveBehavior(DynamoDBMapperConfig.SaveBehavior.UPDATE_SKIP_NULL_ATTRIBUTES).build()
         return this.dynamoDBMapper.save(mailBox, config)
     }
 
@@ -391,17 +434,44 @@ class MailRepository {
     fun notifyNewEmailReceived(mailAccount: MailAccount, mailBox: MailBox, mailMessage: MailMessage) {
         val notificationType = MAIL_NEW_EMAIL_RECEIVED
         val data = this.dynamoDBMapper.load(
-            MailMessage::class.java,
-            mailMessage.pk,
-            mailMessage.sk
+            MailMessage::class.java, mailMessage.pk, mailMessage.sk
         )
 
         this.appSyncProvider.executeSendNotification(
-            notificationType,
-            Gson().toJson(data),
-            Date().time,
-            mailAccount.tenant,
-            mailAccount.username
+            notificationType, Gson().toJson(data), Date().time, mailAccount.tenant, mailAccount.username
         )
+    }
+
+    /**
+     * This method to save mail account to dynamo db
+     *
+     * @param mailAccount The mail account information
+     * @param authenticatedUser The authenticated user information
+     * @param encryptionKey The secret key for encrypting inbound/outbound password
+     */
+    fun linkEmail(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser, encryptionKey: String) = try {
+        val userPk = "$TENANT_INDEX#${authenticatedUser.tenant}#$USER_INDEX#${authenticatedUser.username}"
+        // Generate pk, sk for dynamo db
+        mailAccount.pk = userPk
+        mailAccount.sk = "$MAIL_ACCOUNT_INDEX#${mailAccount.email}"
+        // Save default mailbox to dynamodb
+        for (name in Constant.DEFAULT_MAILBOX) {
+            val mailBox = MailBox()
+            mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX"
+            mailBox.sk = "$MAILBOX_INDEX#$name"
+            this.dynamoDBMapper.save(mailBox)
+        }
+        // Encrypt mail password
+        mailAccount.inboundPassword = mailAccount.inboundPassword.encrypt(encryptionKey)
+        mailAccount.outboundPassword = mailAccount.outboundPassword.encrypt(encryptionKey)
+        // Set tenant, username for mail account
+        mailAccount.tenant = authenticatedUser.tenant
+        mailAccount.username = authenticatedUser.username
+        // Save mail account information to dynamodb
+        this.dynamoDBMapper.save(mailAccount)
+        logger.info("Save mail account ${mailAccount.email} to dynamodb successfully")
+    } catch (e: Exception) {
+        logger.error(e.toString())
+        throw Exception("Failed to link mail account ${mailAccount.email}")
     }
 }

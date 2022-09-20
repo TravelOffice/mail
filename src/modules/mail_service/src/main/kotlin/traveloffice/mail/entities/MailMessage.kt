@@ -4,6 +4,7 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
 import javax.mail.Flags
 import javax.mail.Flags.Flag
+import javax.mail.internet.InternetAddress
 
 @DynamoDBTable(tableName = "mail_table")
 class MailMessage : BaseModel() {
@@ -29,10 +30,10 @@ class MailMessage : BaseModel() {
     var flags: String = Flags(Flag.RECENT).toString()
 
     @DynamoDBAttribute(attributeName = "from")
-    var from: List<EmailAddress>? = null
+    var from: List<EmailAddress> = emptyList()
 
     @DynamoDBAttribute(attributeName = "to")
-    var to: List<EmailAddress>? = null
+    var to: List<EmailAddress> = emptyList()
 
     @DynamoDBAttribute(attributeName = "cc")
     var cc: List<EmailAddress>? = null
@@ -46,4 +47,15 @@ class MailMessage : BaseModel() {
     @DynamoDBAttribute(attributeName = "size")
     var size: Int = 0
 
+    val fromAsInternetAddress: InternetAddress
+        get() {
+            return this.from.first().toInternetAddress()
+        }
+
+    val toAsInternetAddresses: List<InternetAddress>
+        get() {
+            return this.to.map {
+                it.toInternetAddress()
+            }
+        }
 }

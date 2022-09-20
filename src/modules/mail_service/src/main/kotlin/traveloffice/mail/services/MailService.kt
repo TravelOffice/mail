@@ -1,12 +1,14 @@
 package traveloffice.mail.services
 
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.kms.model.NotFoundException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
+import traveloffice.mail.common.Constant
+import traveloffice.mail.entities.AuthenticatedUser
+import traveloffice.mail.entities.MailAccount
 import traveloffice.mail.entities.MailBoxSyncStatus
 import traveloffice.mail.entities.MailMessageQueueData
 import traveloffice.mail.exceptions.FunctionNotImplemented
@@ -17,9 +19,6 @@ import traveloffice.mail.repositories.MailRepository
 @Service
 @DependsOn("DynamoDBMapper")
 class MailService {
-    @Autowired
-    lateinit var dynamoDBMapper: DynamoDBMapper
-
     @Autowired
     lateinit var secretManagerService: SecretManagerService
 
@@ -106,7 +105,7 @@ class MailService {
                 }
                 // Calculate the total size of new message received
                 totalSize += mailMessage.size
-                count ++
+                count++
             }
             // Update the mailbox size, count, and unread count
             this.mailRepository.updateMailBoxMetric(mailBox, totalSize, count, count)
@@ -117,5 +116,26 @@ class MailService {
         } finally {
             this.mailRepository.changeMailBoxStatus(mailBox, MailBoxSyncStatus.SYNCED)
         }
+    }
+
+    /**
+     * This method use to link email to the TO systems
+     *
+     * @param mailAccount The mail account information
+     * @param authenticatedUser The user is decoded from cognito token
+     * @return void
+     * @exception
+     */
+    fun linkEmail(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser) = try {
+        // Validate mail account information by this step
+        mailRepository.validateMailAccount(mailAccount, authenticatedUser)
+        // Encrypt password
+        val encryptionKey = this.secretManagerService.getAWSSecretValue(Constant.ENCRYPT_SECRET_KEY)
+        // Save mail account information to dynamodb
+        mailRepository.linkEmail(mailAccount, authenticatedUser, encryptionKey)
+        logger.info("Link mail account ${mailAccount.email} successfully")
+    } catch (e: Exception) {
+        logger.error(e.toString())
+        throw e
     }
 }
