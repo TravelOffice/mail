@@ -33,7 +33,7 @@ abstract class MailProvider {
         properties["mail.$inboundType.host"] = mailAccount.inboundHost
         properties["mail.$inboundType.port"] = mailAccount.inboundPort
         when (mailAccount.inboundSslMode) {
-            "ssl" -> properties["mail.$inboundType.ssl.enable"] = "true" //SSL
+            "ssl/tls" -> properties["mail.$inboundType.ssl.enable"] = "true" //SSL
             "starttls" -> properties["mail.$inboundType.starttls.enable"] = "true" //TLS
         }
         properties["mail.$inboundType.timeout"] = timeout

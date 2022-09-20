@@ -30,7 +30,7 @@ class SMTPProvider {
         prop["mail.smtp.port"] = mailAccount.outboundPort
         prop["mail.smtp.auth"] = "true"
         when (mailAccount.outboundSslMode) {
-            "ssl" -> prop["mail.smtp.ssl.enable"] = "true" //SSL
+            "ssl/tls" -> prop["mail.smtp.ssl.enable"] = "true" //SSL
             "starttls" -> prop["mail.smtp.starttls.enable"] = "true" //TLS
         }
         return Session.getInstance(prop, object : Authenticator() {

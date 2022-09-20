@@ -19,6 +19,7 @@ import javax.validation.constraints.NotBlank
 class MailAccount: BaseModel() {
     @DynamoDBAttribute(attributeName = "email")
     @Email(message = INVALID_MESSAGE)
+    @NotBlank(message = REQUIRED_MESSAGE)
     lateinit var email: String
 
     @DynamoDBAttribute(attributeName = "name")
@@ -32,7 +33,7 @@ class MailAccount: BaseModel() {
     val inboundType: String
         @DynamoDBIgnore
         get() {
-            return if (inboundSslMode == "ssl") "${protocol}s"
+            return if (inboundSslMode == "ssl/tls") "${protocol}s"
                 else protocol
         }
 
@@ -46,7 +47,7 @@ class MailAccount: BaseModel() {
     var inboundPort: Int = 993
 
     @DynamoDBAttribute(attributeName = "inboundSslMode")
-    @OneOf(array = ["none", "ssl", "tls"], message = "$ONE_OF_MESSAGE [none, ssl, tls]")
+    @OneOf(array = ["none", "ssl/tls", "starttls"], message = "$ONE_OF_MESSAGE [none, ssl/tls, starttls]")
     lateinit var inboundSslMode: String
 
     @DynamoDBAttribute(attributeName = "inboundUser")
@@ -67,7 +68,7 @@ class MailAccount: BaseModel() {
     var outboundPort: Int = 25
 
     @DynamoDBAttribute(attributeName = "outboundSslMode")
-    @OneOf(array = ["none", "ssl", "tls"], message = "$ONE_OF_MESSAGE [none, ssl, tls]")
+    @OneOf(array = ["none", "ssl/tls", "starttls"], message = "$ONE_OF_MESSAGE [none, ssl/tls, starttls]")
     lateinit var outboundSslMode: String
 
     @DynamoDBAttribute(attributeName = "outboundUser")
