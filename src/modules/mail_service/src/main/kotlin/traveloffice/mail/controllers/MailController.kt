@@ -12,11 +12,11 @@ import javax.validation.Valid
 
 @RestController
 class MailController {
-
     @GetMapping("/healthcheck")
     fun healthCheck(): ResponseEntity<String> {
         return ResponseEntity.ok("OK")
     }
+
     @PostMapping("/link-email")
     fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<String> {
         TODO("Method not implemented yet")

@@ -4,5 +4,5 @@ data class MailMessageQueueData(
     var tenant: String,
     var username: String,
     var action: String,
-    var data: Map<String, Any>
+    var arguments: Map<String, Any>
 )

@@ -8,7 +8,8 @@ locals {
     standard_vars = {
       ENV                                                    = var.ENV
       AWS_REGION                                             = var.AWS_REGION
-      SECRET_MANAGER_ID                                      = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.secret_manager.id
+      SECRET_MANAGER_ID                                      = module.REMOTE_STATE.STATE.MARKETING.backend.secret_manager.id
+      MAX_MESSAGE_BRIEF_CONTENT_SIZE                         = 200
       "spring.security.oauth2.resourceserver.jwt.issuer-uri" = "https://cognito-idp.${var.AWS_REGION}.amazonaws.com/${module.REMOTE_STATE.STATE.COMMON_CONFIG.cognito.user_pool.id}"
     }
   }
