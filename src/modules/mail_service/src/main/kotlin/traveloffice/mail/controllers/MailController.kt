@@ -1,5 +1,6 @@
 package traveloffice.mail.controllers
 
+import com.google.gson.Gson
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -10,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.*
 import traveloffice.mail.entities.MailAccount
 import traveloffice.mail.entities.ResponseBody
+import traveloffice.mail.entities.RestrictedMailAccount
 import traveloffice.mail.extensions.getUser
 import traveloffice.mail.services.MailService
 import java.lang.Exception
@@ -28,11 +30,11 @@ class MailController {
     }
 
     @PostMapping("/link-email")
-    fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<ResponseBody<MailAccount>> {
+    fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<ResponseBody<RestrictedMailAccount>> {
         return try {
             val authenticatedUser = SecurityContextHolder.getContext().getUser()
             mailService.linkEmail(mailAccount, authenticatedUser)
-            ResponseEntity.ok(ResponseBody(code = "SUCCESS", data = mailAccount, message = "Link successfully"))
+            ResponseEntity.ok(ResponseBody(code = "SUCCESS", data = mailAccount.restrict(), message = "Link successfully"))
         } catch (e: Exception) {
             ResponseEntity.ok(ResponseBody(code = "FAILED", message = e.message.toString()))
         }

@@ -148,6 +148,6 @@ abstract class MailProvider {
     fun validateIncomingServer(mailAccount: MailAccount) {
         val properties = this.getProperty(mailAccount)
         val store = this.emailStoreConnect(properties, mailAccount)
-        store.close()
+        this.emailStoreDisconnect(store)
     }
 }
