@@ -14,6 +14,7 @@ variable "MAIL_TARGET_GROUP_ARN" {}
 variable "SUBNETS" {}
 variable "VPC_ID" {}
 variable "MAIL_SERVICE_QUEUE_NAME" {}
+variable "MESSAGE_PER_TASK" {}
 
 locals {
   cluster_name = "${upper("${var.ENV}-${var.FEATURE_NAME}")}-CLUSTER"
@@ -141,6 +142,7 @@ module "ECS_MAIL_QUEUE_SERVICE" {
   ECS_CLUSTER_NAME        = module.ECS_CLUSTER.cluster_name
   MAIL_TASK_ARN           = module.ECS_MAIL_QUEUE_TASK_DEFINITION.task_arn
   MAIL_SERVICE_QUEUE_NAME = var.MAIL_SERVICE_QUEUE_NAME
+  MESSAGE_PER_TASK        = var.MESSAGE_PER_TASK
   DESIRED_COUNT           = 0
   MIN_CAPACITY            = 0
   MAX_CAPACITY            = 5

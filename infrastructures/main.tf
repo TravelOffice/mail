@@ -9,7 +9,6 @@ locals {
       ENV                                                    = var.ENV
       AWS_REGION                                             = var.AWS_REGION
       SECRET_MANAGER_ID                                      = module.REMOTE_STATE.STATE.MARKETING.backend.secret_manager.id
-      MAX_MESSAGE_BRIEF_CONTENT_SIZE                         = "200"
       "spring.security.oauth2.resourceserver.jwt.issuer-uri" = "https://cognito-idp.${var.AWS_REGION}.amazonaws.com/${module.REMOTE_STATE.STATE.COMMON_CONFIG.cognito.user_pool.id}"
     }
   }
@@ -19,6 +18,8 @@ locals {
     Terraform = true
     Feature   = var.FEATURE_NAME
   }
+
+  MESSAGE_PER_TASK = 5
 }
 
 module "REMOTE_STATE" {
@@ -56,7 +57,9 @@ module "ECS" {
   MAIL_QUEUE_TASK_ENV = merge(
     local.env_vars.standard_vars,
     {
-      MAIL_SERVICE_QUEUE_NAME = module.MAIL_QUEUE.mail_queue_url
+      MAIL_SERVICE_QUEUE_NAME           = module.MAIL_QUEUE.mail_queue_url
+      MAX_MESSAGE_BRIEF_CONTENT_SIZE    = "200"
+      MAIL_MAX_MESSAGE_PER_SERVICE_TASK = tostring(local.MESSAGE_PER_TASK)
     }
   )
   TAGS                    = local.tags
@@ -65,6 +68,7 @@ module "ECS" {
   VPC_ID                  = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.vpc.id
   MAIL_TARGET_GROUP_ARN   = module.MAIL_LOAD_BALANCER.mail_lb_target_group_arn
   MAIL_SERVICE_QUEUE_NAME = module.MAIL_QUEUE.mail_queue_name
+  MESSAGE_PER_TASK        = local.MESSAGE_PER_TASK
 }
 
 resource "aws_route53_record" "mail_domain" {

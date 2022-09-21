@@ -23,6 +23,7 @@ import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_BUCKET
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.MAIL_NEW_EMAIL_RECEIVED
+import traveloffice.mail.common.Constant.Companion.MAIL_SYNC_EMAIL_FAILED
 import traveloffice.mail.common.Constant.Companion.MESSAGE_INDEX
 import traveloffice.mail.common.Constant.Companion.S3_TEMPORARY_UPLOAD_FOLDER
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
@@ -82,7 +83,7 @@ class MailRepository {
      * @exception UnSupportedInboxType
      */
     fun getLastMailBoxSync(mailAccount: MailAccount, mailBox: MailBox): List<Message> {
-        logger.info("getLastMailBoxSync MailBox[$mailBox] with MailAccount [$mailAccount]")
+        logger.info("getLastMailBoxSync MailBox[${mailBox.name}] with MailAccount [${mailAccount.name}]")
         val mailProvider = mailProviderFactory.makeProvider(mailAccount.protocol)
         val lastMailboxSync = mailBox.lastMailboxSync
         val mailBoxName = mailBox.name
@@ -117,14 +118,16 @@ class MailRepository {
         val email = mailProvider.parseMessage(message)
 
         // Get the brief content of the message
-        val emailContentStream = email.plainTextEmailBody.`is`
         var briefContent = ""
-        if (emailContentStream.available() > 0) {
-            val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
-            briefContent = if (defaultBriefContentSize < emailContentStream.available()) {
-                String(emailContentStream.readNBytes(defaultBriefContentSize))
-            } else {
-                String(emailContentStream.readAllBytes())
+        if (email.plainTextEmailBody != null) {
+            val emailContentStream = email.plainTextEmailBody.`is`
+            if (emailContentStream.available() > 0) {
+                val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
+                briefContent = if (defaultBriefContentSize < emailContentStream.available()) {
+                    String(emailContentStream.readNBytes(defaultBriefContentSize))
+                } else {
+                    String(emailContentStream.readAllBytes())
+                }
             }
         }
 
@@ -137,11 +140,12 @@ class MailRepository {
         )
         mailMessage.receivedDate = if (message.receivedDate != null) message.receivedDate.time else null
         mailMessage.sentDate = if (message.sentDate != null) message.sentDate.time else null
-        mailMessage.subject = email.emailSubject
+        mailMessage.subject = email.emailSubject ?: ""
         mailMessage.from = getAddressFromHeader(email.fromEmailHeaderValue)
         mailMessage.to = getAddressFromHeader(email.toEmailHeaderValue)
         mailMessage.cc = getAddressFromHeader(email.ccEmailHeaderValue)
         mailMessage.bcc = getAddressFromHeader(email.header.getField("Bcc")?.body)
+        mailMessage.inReplyTo = mailProvider.getInRelyTo(message)
         mailMessage.attachments = getAttachmentsFromEmail(
             mailAccount, mailMessage.messageId, email.attachments
         )
@@ -338,8 +342,7 @@ class MailRepository {
         metadata.contentEncoding = attachment.encoding
         val putObjectRequest = PutObjectRequest(mailBucket, mailObjectKey, attachment.inputStream, metadata)
         this.s3Provider.putObject(putObjectRequest)
-        val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
-        return "$mailCDN/${URLEncoder.encode(mailObjectKey, "UTF-8")}"
+        return URLEncoder.encode(mailObjectKey, "UTF-8")
     }
 
 
@@ -365,8 +368,7 @@ class MailRepository {
         metadata.contentLength = htmlEmailBody.`is`.available().toLong()
         val putObjectRequest = PutObjectRequest(mailBucket, htmlObjectKey, htmlEmailBody.`is`, metadata)
         this.s3Provider.putObject(putObjectRequest)
-        val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
-        return "$mailCDN/${URLEncoder.encode(htmlObjectKey, "UTF-8")}"
+        return URLEncoder.encode(htmlObjectKey, "UTF-8")
     }
 
     /**
@@ -395,11 +397,11 @@ class MailRepository {
      * @return The path of html email body which saved to the local storage
      * @exception
      */
-    fun updateMailBoxLastSyncTime(mailBox: MailBox, syncTime: Long) {
+    fun updateMailBoxLastSyncTime(mailBox: MailBox, syncTime: Date?) {
         val box = MailBox()
         box.pk = mailBox.pk
         box.sk = mailBox.sk
-        box.lastMailboxSync = syncTime
+        box.lastMailboxSync = syncTime?.time
         this.updateMailBox(box)
     }
 
@@ -454,13 +456,42 @@ class MailRepository {
      * @param mailBox: The mailbox information.
      * @param mailMessage: The mail message information to be notified.
      *
-     * @return The path of html email body which saved to the local storage
+     * @return
      * @exception
      */
-    fun notifyNewEmailReceived(mailAccount: MailAccount, mailBox: MailBox, mailMessage: MailMessage) {
+    fun notifyNewEmailReceived(
+        mailAccount: MailAccount,
+        mailBox: MailBox,
+        mailMessage: MailMessage,
+        firstSync: Boolean
+    ) {
         val notificationType = MAIL_NEW_EMAIL_RECEIVED
+        val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
         val data = this.dynamoDBMapper.load(
             MailMessage::class.java, mailMessage.pk, mailMessage.sk
+        ).restrict(mailCDN).toMutableMap()
+        data["firstSync"] = firstSync
+
+        this.appSyncProvider.executeSendNotification(
+            notificationType, Gson().toJson(data), Date().time, mailAccount.tenant, mailAccount.username
+        )
+    }
+
+    /**
+     * This method perform to notification sync email failed
+     *
+     * @param mailAccount: The mail account information.
+     * @param mailBox: The mailbox information.
+     * @param message: The sync email error message.
+     *
+     * @return
+     * @exception
+     */
+    fun notifySyncEmailError(mailAccount: MailAccount, mailBox: MailBox, message: String) {
+        val notificationType = MAIL_SYNC_EMAIL_FAILED
+        val data = mapOf(
+            "mailbox" to mailBox.name,
+            "message" to message,
         )
 
         this.appSyncProvider.executeSendNotification(

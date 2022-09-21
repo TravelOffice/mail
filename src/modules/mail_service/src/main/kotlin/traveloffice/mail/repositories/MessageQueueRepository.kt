@@ -8,6 +8,7 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse
 import software.amazon.awssdk.services.sqs.model.SqsException
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAX_NUMBER_MESSAGE
+import traveloffice.mail.common.Constant.Companion.DEFAULT_VISIBLE_TIME_OUT
 import traveloffice.mail.common.Constant.Companion.DEFAULT_WAIT_TIME_SECOND
 import traveloffice.mail.providers.SQSProvider
 
@@ -43,6 +44,7 @@ class MessageQueueRepository {
                 .queueUrl(queueUrl)
                 .maxNumberOfMessages(maxNumberOfMessages)
                 .waitTimeSeconds(waitTimeSeconds)
+                .visibilityTimeout(DEFAULT_VISIBLE_TIME_OUT)
                 .build()
             return this.sqsProvider.receiveMessage(receiveMessageRequest)
         } catch (e: SqsException) {

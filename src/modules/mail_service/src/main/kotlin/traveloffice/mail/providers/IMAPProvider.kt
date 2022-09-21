@@ -1,6 +1,7 @@
 package traveloffice.mail.providers
 
 import com.sun.mail.imap.IMAPMessage
+import com.sun.mail.pop3.POP3Message
 import traveloffice.mail.entities.MailAccount
 import java.io.InputStream
 import java.util.*
@@ -66,4 +67,15 @@ class IMAPProvider : MailProvider() {
      */
     @Override
     override fun getMessageId(message: Message): String = (message as IMAPMessage).messageID
+
+    /**
+     * This method perform to get the message reply to from provider
+     *
+     * @param message: The message information.
+
+     * @return The In-Reply-To of the message.
+     * @exception
+     */
+    @Override
+    override fun getInRelyTo(message: Message): String? = (message as IMAPMessage).inReplyTo
 }
