@@ -1,7 +1,7 @@
 package traveloffice.mail.entities
 
-data class ResponseBody<T>(
-    val code: String,
-    val message: String,
-    val data: T? = null,
+open class ResponseBody<T>(
+    open val code: String,
+    open val message: String,
+    open val data: T? = null,
 )

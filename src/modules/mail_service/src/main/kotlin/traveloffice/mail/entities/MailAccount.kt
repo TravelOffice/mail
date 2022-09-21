@@ -97,25 +97,6 @@ class MailAccount : BaseModel() {
     lateinit var username: String
 
     fun restrict(): RestrictedMailAccount {
-        return Gson().fromJson<RestrictedMailAccount>(Gson().toJson(this), RestrictedMailAccount::class.java)
+        return Gson().fromJson(Gson().toJson(this), RestrictedMailAccount::class.java)
     }
 }
-
-data class RestrictedMailAccount(
-    var email: String,
-    var name: String,
-    var protocol: String,
-    var inboundHost: String,
-    var inboundPort: Int,
-    var inboundSslMode: String,
-    var inboundUser: String,
-    var outboundHost: String,
-    var outboundPort: Int,
-    var outboundSslMode: String,
-    var outboundUser: String,
-    var provider: String,
-    var tenant: String,
-    var username: String,
-    var createdAt: Long,
-    var updatedAt: Long,
-)

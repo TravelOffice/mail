@@ -1,10 +1,17 @@
 package traveloffice.mail.providers
 
+import com.sun.mail.smtp.SMTPAddressFailedException
+import com.sun.mail.util.MailConnectException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Repository
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAIL_TIMEOUT
+import traveloffice.mail.common.Constant.Companion.ERROR_CONNECT_TO_OUTBOUND_SERVER
+import traveloffice.mail.common.Constant.Companion.ERROR_LOGIN_TO_OUTBOUND_SERVER
+import traveloffice.mail.common.Constant.Companion.ERROR_EMAIL_ADDRESS_IS_INVALID
 import traveloffice.mail.entities.MailAccount
 import traveloffice.mail.entities.MailMessage
+import traveloffice.mail.exceptions.ResponseException
 import java.util.*
 import javax.activation.DataHandler
 import javax.activation.DataSource
@@ -29,6 +36,9 @@ class SMTPProvider {
         prop["mail.smtp.host"] = mailAccount.outboundHost
         prop["mail.smtp.port"] = mailAccount.outboundPort
         prop["mail.smtp.auth"] = "true"
+        prop["mail.smtp.timout"] = DEFAULT_MAIL_TIMEOUT
+        prop["mail.smtp.connectiontimeout"] = DEFAULT_MAIL_TIMEOUT
+        prop["mail.smtp.writetimeout"] = DEFAULT_MAIL_TIMEOUT
         when (mailAccount.outboundSslMode) {
             "ssl/tls" -> prop["mail.smtp.ssl.enable"] = "true" //SSL
             "starttls" -> prop["mail.smtp.starttls.enable"] = "true" //TLS
@@ -63,8 +73,12 @@ class SMTPProvider {
             message.setContent(multipart)
             Transport.send(message)
             logger.info("Send email successfully")
-        } catch (e: MessagingException) {
-            logger.error("Failed to send email: ", e)
+        } catch (e: MailConnectException) {
+            throw ResponseException(e.message.toString(), ERROR_CONNECT_TO_OUTBOUND_SERVER)
+        } catch (e: AuthenticationFailedException) {
+            throw ResponseException(e.message.toString(), ERROR_LOGIN_TO_OUTBOUND_SERVER)
+        } catch (e: SendFailedException) {
+            throw ResponseException(e.message.toString(), ERROR_EMAIL_ADDRESS_IS_INVALID)
         }
     }
 
