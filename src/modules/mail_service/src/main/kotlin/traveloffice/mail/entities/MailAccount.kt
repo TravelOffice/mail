@@ -3,6 +3,7 @@ package traveloffice.mail.entities
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
+import com.google.gson.Gson
 import traveloffice.mail.common.Constant.Companion.BLANK_MESSAGE
 import traveloffice.mail.common.Constant.Companion.GREATER_THAN_EQUAL_MESSAGE
 import traveloffice.mail.common.Constant.Companion.INVALID_MESSAGE
@@ -15,8 +16,8 @@ import javax.validation.constraints.Max
 import javax.validation.constraints.Min
 import javax.validation.constraints.NotBlank
 
-@DynamoDBTable(tableName="mail_table")
-class MailAccount: BaseModel() {
+@DynamoDBTable(tableName = "mail_table")
+class MailAccount : BaseModel() {
     @DynamoDBAttribute(attributeName = "email")
     @Email(message = INVALID_MESSAGE)
     @NotBlank(message = REQUIRED_MESSAGE)
@@ -34,7 +35,7 @@ class MailAccount: BaseModel() {
         @DynamoDBIgnore
         get() {
             return if (inboundSslMode == "ssl/tls") "${protocol}s"
-                else protocol
+            else protocol
         }
 
     @DynamoDBAttribute(attributeName = "inboundHost")
@@ -83,7 +84,10 @@ class MailAccount: BaseModel() {
     var signature: String? = null
 
     @DynamoDBAttribute(attributeName = "provider")
-    @OneOf(array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"], message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]")
+    @OneOf(
+        array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"],
+        message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]"
+    )
     lateinit var provider: String
 
     @DynamoDBAttribute(attributeName = "tenant")
@@ -91,4 +95,8 @@ class MailAccount: BaseModel() {
 
     @DynamoDBAttribute(attributeName = "username")
     lateinit var username: String
+
+    fun restrict(): RestrictedMailAccount {
+        return Gson().fromJson(Gson().toJson(this), RestrictedMailAccount::class.java)
+    }
 }

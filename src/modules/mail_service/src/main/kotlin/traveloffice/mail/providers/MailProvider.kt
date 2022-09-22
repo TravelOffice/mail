@@ -1,23 +1,23 @@
 package traveloffice.mail.providers
 
+import com.sun.mail.util.MailConnectException
 import org.apache.james.mime4j.codec.DecodeMonitor
 import org.apache.james.mime4j.message.DefaultBodyDescriptorBuilder
 import org.apache.james.mime4j.parser.MimeStreamParser
 import org.apache.james.mime4j.stream.MimeConfig
 import tech.blueglacier.email.Email
 import tech.blueglacier.parser.CustomContentHandler
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAIL_TIMEOUT
+import traveloffice.mail.common.Constant.Companion.ERROR_CONNECT_TO_INBOUND_SERVER
+import traveloffice.mail.common.Constant.Companion.ERROR_LOGIN_TO_INBOUND_SERVER
 import traveloffice.mail.entities.MailAccount
+import traveloffice.mail.exceptions.ResponseException
 import java.io.InputStream
 import java.util.*
-import javax.mail.Folder
-import javax.mail.Message
-import javax.mail.Session
-import javax.mail.Store
+import javax.mail.*
 
 
 abstract class MailProvider {
-    private val timeout: Long = 10000
-
     /**
      * This method perform create the mailbox property
      *
@@ -36,8 +36,8 @@ abstract class MailProvider {
             "ssl/tls" -> properties["mail.$inboundType.ssl.enable"] = "true" //SSL
             "starttls" -> properties["mail.$inboundType.starttls.enable"] = "true" //TLS
         }
-        properties["mail.$inboundType.timeout"] = timeout
-        properties["mail.$inboundType.connectiontimeout"] = timeout
+        properties["mail.$inboundType.timeout"] = DEFAULT_MAIL_TIMEOUT
+        properties["mail.$inboundType.connectiontimeout"] = DEFAULT_MAIL_TIMEOUT
         return properties
     }
 
@@ -147,7 +147,16 @@ abstract class MailProvider {
      */
     fun validateIncomingServer(mailAccount: MailAccount) {
         val properties = this.getProperty(mailAccount)
-        val store = this.emailStoreConnect(properties, mailAccount)
-        store.close()
+        try {
+            val emailSession = Session.getInstance(properties)
+            // Create the IMAP/POP3 store object and connect with the pop server
+            val store = emailSession.getStore(mailAccount.inboundType)
+            store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
+            this.emailStoreDisconnect(store)
+        } catch (e: AuthenticationFailedException) {
+            throw ResponseException("Failed to login to inbound server", ERROR_LOGIN_TO_INBOUND_SERVER)
+        } catch (e: MailConnectException) {
+            throw ResponseException(e.message.toString(), ERROR_CONNECT_TO_INBOUND_SERVER)
+        }
     }
 }
