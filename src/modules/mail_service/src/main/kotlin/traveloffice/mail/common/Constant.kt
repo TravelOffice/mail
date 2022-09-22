@@ -21,6 +21,7 @@ class Constant {
         const val BLANK_MESSAGE = "cannot be blank"
         const val MAIL_NEW_EMAIL_RECEIVED = "MAIL_NEW_EMAIL_RECEIVED"
         const val MAIL_BUCKET = "MAIL_BUCKET"
+        const val S3_TEMPORARY_UPLOAD_FOLDER = "temporary-upload"
         const val MAIL_CDN = "MAIL_CDN"
         val DEFAULT_MAILBOX = arrayOf("INBOX", "SENT", "DRAFT", "DELETE", "SPAM")
         const val TESTING_MAIL_SUBJECT = "iTAB Test Message"

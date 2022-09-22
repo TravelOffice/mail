@@ -2,10 +2,12 @@ package traveloffice.mail.providers
 
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
 import com.amazonaws.services.s3.model.GetObjectRequest
 import com.amazonaws.services.s3.model.PutObjectRequest
 import com.amazonaws.services.s3.model.PutObjectResult
 import com.amazonaws.services.s3.model.S3Object
+import java.net.URL
 
 class S3Provider(region: String) {
     private var s3Client: AmazonS3
@@ -36,4 +38,12 @@ class S3Provider(region: String) {
      * @exception
      */
     fun getObject(getObjectRequest: GetObjectRequest): S3Object? = this.s3Client.getObject(getObjectRequest)
+
+    /**
+     * This method performs to generate S3 presigned url
+     *
+     * @param generatePresignedUrlRequest The request object containing all the options on how to generate a presigned url
+     * @return The URL Object
+     */
+    fun generatePresignedUrl(generatePresignedUrlRequest: GeneratePresignedUrlRequest): URL = this.s3Client.generatePresignedUrl(generatePresignedUrlRequest)
 }
