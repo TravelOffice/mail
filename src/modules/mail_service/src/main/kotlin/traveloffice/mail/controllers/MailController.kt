@@ -6,24 +6,26 @@ import org.springframework.http.ResponseEntity
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.validation.FieldError
 import org.springframework.validation.ObjectError
+import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.*
 import traveloffice.mail.common.Constant.Companion.ERROR_UNKNOWN
 import traveloffice.mail.common.Constant.Companion.ERROR_VALIDATOR
-import traveloffice.mail.entities.MailAccount
+import traveloffice.mail.entities.*
 import traveloffice.mail.entities.ResponseBody
-import traveloffice.mail.entities.RestrictedMailAccount
-import traveloffice.mail.entities.ValidatorResponseBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
 import traveloffice.mail.services.MailService
-import java.lang.Exception
-import java.lang.IllegalStateException
+import java.net.URL
 import java.util.function.Consumer
+import javax.validation.ConstraintViolationException
 import javax.validation.Valid
+import javax.validation.constraints.NotBlank
+import javax.validation.constraints.NotEmpty
 
 
 @RestController
+@Validated
 class MailController {
     @Autowired
     lateinit var mailService: MailService
@@ -40,6 +42,16 @@ class MailController {
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = mailAccount.restrict(), message = "Link successfully"
+            )
+        )
+    }
+
+    @GetMapping("/presigned-url")
+    fun getPresignedUrl(@RequestParam @NotEmpty fileName: String): ResponseEntity<ResponseBody<PresignedUrlResponsePayload>> {
+        val presignedUrl = mailService.generatePresignedUrl(fileName)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = presignedUrl, message = "Generate presigned-url successfully"
             )
         )
     }
@@ -68,6 +80,13 @@ class MailController {
                 errors = errors,
             )
         )
+    }
+
+    @ExceptionHandler(ConstraintViolationException::class)
+    fun handleValidationException(
+        ex: ConstraintViolationException
+    ): ResponseEntity<ResponseBody<Any>> {
+        return ResponseEntity.ok(ResponseBody(code = ERROR_VALIDATOR, message = ex.message.toString()))
     }
 
     @ExceptionHandler(ResponseException::class)

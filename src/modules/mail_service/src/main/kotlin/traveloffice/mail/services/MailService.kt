@@ -7,14 +7,12 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
 import traveloffice.mail.common.Constant
-import traveloffice.mail.entities.AuthenticatedUser
-import traveloffice.mail.entities.MailAccount
-import traveloffice.mail.entities.MailBoxSyncStatus
-import traveloffice.mail.entities.MailMessageQueueData
+import traveloffice.mail.entities.*
 import traveloffice.mail.exceptions.FunctionNotImplemented
 import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.repositories.MailRepository
+import java.net.URL
 
 @Service
 @DependsOn("DynamoDBMapper")
@@ -63,8 +61,7 @@ class MailService {
         val username = data.username
         val box = data.arguments["mailbox"]?.toString()?.uppercase()
         val account = data.arguments["mailAccount"]?.toString()
-        if (box.isNullOrEmpty() || account.isNullOrEmpty())
-            throw InvalidArguments("Missing mailbox or mail account")
+        if (box.isNullOrEmpty() || account.isNullOrEmpty()) throw InvalidArguments("Missing mailbox or mail account")
 
         // Get the mail account information
         val mailAccount = this.mailRepository.getMailAccount(tenant, username, account)
@@ -99,8 +96,7 @@ class MailService {
                 // Update the mailbox last mailbox sync time
                 (mailMessage.receivedDate ?: mailMessage.sentDate)?.let {
                     this.mailRepository.updateMailBoxLastSyncTime(
-                        mailBox,
-                        it
+                        mailBox, it
                     )
                 }
                 // Calculate the total size of new message received
@@ -134,6 +130,19 @@ class MailService {
         // Save mail account information to dynamodb
         mailRepository.linkEmail(mailAccount, authenticatedUser, encryptionKey)
         logger.info("Link mail account ${mailAccount.email} successfully")
+    } catch (e: Exception) {
+        logger.error(e.toString())
+        throw e
+    }
+
+    /**
+     * This method performs generate presigned url
+     *
+     * @params fileName The name of file that will be uploaded to s3
+     * @return PresignedUrlResponsePayload object
+     */
+    fun generatePresignedUrl(fileName: String): PresignedUrlResponsePayload = try {
+        mailRepository.generatePresignedUrl(fileName)
     } catch (e: Exception) {
         logger.error(e.toString())
         throw e

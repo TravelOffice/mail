@@ -1,7 +1,9 @@
 package traveloffice.mail.repositories
 
+import com.amazonaws.HttpMethod
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig
+import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.model.PutObjectRequest
 import com.google.gson.Gson
@@ -20,6 +22,7 @@ import traveloffice.mail.common.Constant.Companion.MAIL_BUCKET
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.MAIL_NEW_EMAIL_RECEIVED
 import traveloffice.mail.common.Constant.Companion.MESSAGE_INDEX
+import traveloffice.mail.common.Constant.Companion.S3_TEMPORARY_UPLOAD_FOLDER
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
 import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_CONTEXT
 import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_SUBJECT
@@ -457,8 +460,10 @@ class MailRepository {
         // Save default mailbox to dynamodb
         for (name in Constant.DEFAULT_MAILBOX) {
             val mailBox = MailBox()
-            mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX"
+            mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#$MAILBOX_INDEX"
             mailBox.sk = "$MAILBOX_INDEX#$name"
+            mailBox.count = 0
+            mailBox.unread = 0
             this.dynamoDBMapper.save(mailBox)
         }
         // Encrypt mail password
@@ -473,5 +478,20 @@ class MailRepository {
     } catch (e: Exception) {
         logger.error(e.toString())
         throw Exception("Failed to link mail account ${mailAccount.email}")
+    }
+
+    /**
+     * This method performs generate s3 presigned url
+     *
+     * @params fileName The name of file that will be uploaded to s3
+     * @return PresignedUrlResponsePayload object
+     */
+    fun generatePresignedUrl(fileName: String): PresignedUrlResponsePayload {
+        val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val objectKey = "${S3_TEMPORARY_UPLOAD_FOLDER}/${UUID.randomUUID()}/${fileName}"
+        val generatePresignedUrlRequest: GeneratePresignedUrlRequest =
+            GeneratePresignedUrlRequest(mailBucket, objectKey, HttpMethod.PUT)
+        val url = this.s3Provider.generatePresignedUrl(generatePresignedUrlRequest)
+        return PresignedUrlResponsePayload(url.toString(), url.path)
     }
 }
