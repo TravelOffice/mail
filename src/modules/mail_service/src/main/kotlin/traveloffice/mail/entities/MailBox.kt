@@ -3,6 +3,8 @@ package traveloffice.mail.entities
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
+import com.google.gson.GsonBuilder
+import com.google.gson.annotations.Expose
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 
 @DynamoDBTable(tableName = "mail_table")
@@ -12,19 +14,34 @@ class MailBox : BaseModel() {
         get() {
             return this.sk.substring(MAILBOX_INDEX.length + 1)
         }
+
+    @Expose
     @DynamoDBAttribute(attributeName = "count")
     var count: Int? = null
 
+    @Expose
     @DynamoDBAttribute(attributeName = "unread")
     var unread: Int? = null
 
+    @Expose
     @DynamoDBAttribute(attributeName = "size")
     var size: Long? = null
 
+    @Expose
     @DynamoDBAttribute(attributeName = "lastMailboxSync")
     var lastMailboxSync: Long? = null
 
+    @Expose
     @DynamoDBAttribute(attributeName = "syncStatus")
     var syncStatus: String? = null
 
+    /**
+     * Returns json object with only exposed values
+     */
+    fun toJson(): Map<String, Any> {
+        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
+        val json = gson.fromJson<Map<String, Any>>(gson.toJson(this), MutableMap::class.java).toMutableMap()
+        json["name"] = this.name
+        return json
+    }
 }

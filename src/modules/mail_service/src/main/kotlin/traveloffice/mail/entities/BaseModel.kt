@@ -1,6 +1,7 @@
 package traveloffice.mail.entities
 
 import com.amazonaws.services.dynamodbv2.datamodeling.*
+import com.google.gson.annotations.Expose
 import java.util.*
 
 @DynamoDBDocument
@@ -26,9 +27,11 @@ open class BaseModel {
     @DynamoDBIndexRangeKey(attributeName = "lsi5", localSecondaryIndexName = "Index5")
     var lsi5: String? = null
 
+    @Expose
     @DynamoDBAttribute(attributeName = "createdAt")
     var createdAt: Long = Date().time
 
+    @Expose
     @DynamoDBAttribute(attributeName = "updatedAt")
     var updatedAt: Long = Date().time
 }
