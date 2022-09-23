@@ -9,6 +9,7 @@ import org.springframework.validation.ObjectError
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.*
+import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.ERROR_UNKNOWN
 import traveloffice.mail.common.Constant.Companion.ERROR_VALIDATOR
 import traveloffice.mail.entities.*
@@ -16,12 +17,12 @@ import traveloffice.mail.entities.ResponseBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
 import traveloffice.mail.services.MailService
-import java.lang.Exception
 import java.util.function.Consumer
 import javax.validation.ConstraintViolationException
 import javax.validation.Valid
-import javax.validation.constraints.NotEmpty
 import javax.validation.constraints.Email
+import javax.validation.constraints.NotBlank
+import javax.validation.constraints.NotEmpty
 
 
 @RestController
@@ -108,6 +109,39 @@ class MailController {
     @PostMapping("/sendEmail")
     fun sendEmail() {
         TODO("Method not implemented yet")
+    }
+
+    /**
+     * API to get mail message for given [mail] [mailId]
+     *
+     * Email param will be validated as email address format
+     */
+    @GetMapping("/mails")
+    fun getMailMessagesFromMailBox(
+        @Valid
+        @Email(message = Constant.INVALID_MESSAGE)
+        @NotBlank(message = Constant.REQUIRED_MESSAGE)
+        @RequestParam("email") email: String,
+
+        @Valid
+        @NotBlank(message = Constant.REQUIRED_MESSAGE)
+        @RequestParam("mailbox") mailbox: String,
+
+        @Valid
+        @NotBlank(message = Constant.REQUIRED_MESSAGE)
+        @RequestParam("mailId")
+        mailId: String,
+    ): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        val getMailRequest = GetMailRequestParams(email, mailbox, mailId)
+        // Get mail message for given mailbox
+        val mailMessages = mailService.getMailMessagesFromMailBox(getMailRequest, authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = mailMessages, message = "Get mail message successfully"
+            )
+        )
     }
 
     @ResponseStatus(HttpStatus.BAD_REQUEST)

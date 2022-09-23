@@ -44,6 +44,7 @@ import traveloffice.mail.providers.SMTPProvider
 import traveloffice.mail.services.SecretManagerService
 import java.net.URLEncoder
 import java.util.*
+import javax.mail.Flags
 import javax.mail.Message
 import javax.mail.internet.InternetAddress
 
@@ -304,6 +305,72 @@ class MailRepository {
     }
 
     /**
+     * Get mail message for given [getMailParams] which related to [tenant] and [username]
+     *
+     * Returns [MailMessage] object
+     */
+    private fun getMailMessage(
+        tenant: String,
+        username: String,
+        getMailParams: GetMailRequestParams,
+    ): MailMessage? {
+        return this.dynamoDBMapper.load(
+            MailMessage::class.java,
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${getMailParams.email}#${MAILBOX_INDEX}#${getMailParams.mailbox}",
+            "$MESSAGE_INDEX#${getMailParams.mailId}"
+        )
+    }
+
+    /**
+     * Get thread mails for given [getMailParams] which related to [tenant] and [username]
+     *
+     * Returns list of [MailMessage] object
+     */
+    fun getThreadMails(
+        tenant: String,
+        username: String,
+        getMailParams: GetMailRequestParams,
+    ): List<MailMessage> {
+        val threadMails = mutableListOf<MailMessage>()
+        val mailMessage = this.getMailMessage(tenant, username, getMailParams)
+        if (mailMessage != null) {
+            threadMails.add(mailMessage)
+            if (mailMessage.inReplyTo != null) {
+                val getSubMailRequestParams = getMailParams.copy(mailId = mailMessage.inReplyTo!!)
+                val subThreadMails = this.getThreadMails(tenant, username, getSubMailRequestParams)
+                threadMails.addAll(subThreadMails)
+            }
+        }
+        return threadMails
+    }
+
+    /**
+     * Change status of mail message for given [getMailParams] which related to [tenant] and [username]
+     * Change from [fromFlags] to [toFlags]
+     */
+    fun changeMailMessageStatus(
+        tenant: String,
+        username: String,
+        getMailParams: GetMailRequestParams,
+        fromFlags: Flags,
+        toFlags: Flags
+    ) {
+        val mailMessage = this.getMailMessage(tenant, username, getMailParams)
+        if (mailMessage != null) {
+            val mailMessageUpdateRequest = MailMessageUpdateRequest.Builder()
+                .withHashKey(mailMessage.pk)
+                .withRangeKey(mailMessage.sk)
+                .build()
+
+            val flags = mailMessage.flags.clone() as Flags
+            flags.remove(fromFlags)
+            flags.add(toFlags)
+            mailMessageUpdateRequest.flags = flags
+            this.updateMailMessage(mailMessageUpdateRequest)
+        }
+    }
+
+    /**
      * Get mail account for given [username] that belong to [tenant]
      *
      * Returns [List] of [MailAccount] object
@@ -337,6 +404,9 @@ class MailRepository {
         mailMessage.pk =
             "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + "${MAILBOX_INDEX}#${mailBox.name}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
+        (mailMessage.receivedDate ?: mailMessage.sentDate)?.let {
+            mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBox.name}#${it}"
+        }
         return this.dynamoDBMapper.save(mailMessage)
     }
 
@@ -472,6 +542,20 @@ class MailRepository {
     }
 
     /**
+     * This method perform to update the mailbox information
+     *
+     * @param mailMessageUpdateRequest: The message update information.
+     *
+     * @return The new storage size of the mailbox
+     * @exception
+     */
+    private fun updateMailMessage(mailMessageUpdateRequest: MailMessageUpdateRequest) {
+        val config = DynamoDBMapperConfig.builder()
+            .withSaveBehavior(DynamoDBMapperConfig.SaveBehavior.UPDATE_SKIP_NULL_ATTRIBUTES).build()
+        return this.dynamoDBMapper.save(mailMessageUpdateRequest, config)
+    }
+
+    /**
      * This method perform to notification new email received
      *
      * @param mailAccount: The mail account information.
@@ -491,7 +575,7 @@ class MailRepository {
         val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
         val data = this.dynamoDBMapper.load(
             MailMessage::class.java, mailMessage.pk, mailMessage.sk
-        ).restrict(mailCDN).toMutableMap()
+        ).toJsonWithCDN(mailCDN).toMutableMap()
         data["firstSync"] = firstSync
 
         this.appSyncProvider.executeSendNotification(

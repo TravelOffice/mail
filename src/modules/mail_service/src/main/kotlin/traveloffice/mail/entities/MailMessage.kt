@@ -1,13 +1,14 @@
 package traveloffice.mail.entities
 
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
+import com.amazonaws.services.dynamodbv2.datamodeling.*
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
+import com.google.gson.reflect.TypeToken
+import java.lang.reflect.Type
 import javax.mail.Flags
-import javax.mail.Flags.Flag
 import javax.mail.internet.InternetAddress
+
 
 @DynamoDBTable(tableName = "mail_table")
 class MailMessage : BaseModel() {
@@ -35,9 +36,9 @@ class MailMessage : BaseModel() {
     @DynamoDBAttribute(attributeName = "htmlContent")
     lateinit var htmlContent: String
 
-    @Expose
+    @DynamoDBTypeConverted(converter = FlagTypeConverter::class)
     @DynamoDBAttribute(attributeName = "flags")
-    var flags: String = Flags(Flag.RECENT).toString()
+    var flags: Flags = Flags(Flags.Flag.RECENT)
 
     @Expose
     @DynamoDBAttribute(attributeName = "from")
@@ -81,26 +82,55 @@ class MailMessage : BaseModel() {
             }
         }
 
-    /**
-     * Returns json object with only exposed values
-     */
-    override fun restrict(): MutableMap<String, Any> {
-        // Get restricted json data
-        return super.restrict()
-    }
-
-    private fun clone(): MailMessage {
+    fun clone(): MailMessage {
         val stringAnimal = Gson().toJson(this, MailMessage::class.java)
         return Gson().fromJson(stringAnimal, MailMessage::class.java)
     }
 
-    fun restrict(CDN: String): Map<String, Any> {
+    private fun toJson(): Map<String, Any> {
+        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
+        val mapType: Type = object : TypeToken<Map<String, Any>?>() {}.type
+        val json = gson.fromJson<Map<String, Any>>(gson.toJson(this), mapType).toMutableMap()
+        json["flags"] = this.flags.toString()
+        return json
+    }
+
+    fun toJsonWithCDN(CDN: String): Map<String, Any> {
         val restrictMessage = this.clone()
         restrictMessage.htmlContent = "$CDN/${restrictMessage.htmlContent}"
         restrictMessage.attachments = restrictMessage.attachments?.map {
             it.path = "$CDN/${it.path}"
             return@map it
         }
-        return restrictMessage.restrict()
+        return restrictMessage.toJson()
+    }
+
+    // Converts the complex type FlagType to a string and vice-versa.
+    class FlagTypeConverter : DynamoDBTypeConverter<String?, Flags?> {
+        override fun convert(`object`: Flags?): String? {
+            val itemFlags: Flags? = `object`
+            var flags: String? = null
+            try {
+                if (itemFlags != null) {
+                    flags = Gson().toJson(itemFlags)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return flags
+        }
+
+        override fun unconvert(s: String?): Flags {
+            var itemFlags = Flags()
+            try {
+                if (!s.isNullOrEmpty()) {
+                    itemFlags = Gson().fromJson(s, Flags::class.java)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return itemFlags
+        }
     }
 }
+
