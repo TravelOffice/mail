@@ -87,7 +87,7 @@ class MailService {
         var messageProcessedCount = 0
         var lastSyncTime: Date? = null
         var mailBoxSyncStatus = MailBoxSyncStatus.SYNCING
-        var firstSync = mailBox.lastMailboxSync == null
+        val firstSync = mailBox.lastMailboxSync == null
 
         // Try to sync new email from the last sync time
         try {
@@ -200,5 +200,24 @@ class MailService {
     } catch (e: Exception) {
         logger.error(e.toString())
         throw e
+    }
+
+    /**
+     * Get [mailbox] mails of [mail] address for given [authenticatedUser] returned from Cognito
+     *
+     * Returns [List] of [Map] with exposed data
+     */
+    fun getMailsInsideMailBox(authenticatedUser: AuthenticatedUser, mail: String, mailbox: String, token: String?): Map<String, Any> {
+        try {
+            val (tenant, username) = authenticatedUser
+            val (lastEvaluatedKey, emails) = mailRepository.getMailsInsideMailBox(tenant, username, mail, mailbox, token)
+            return mapOf<String, Any>(
+                "token" to lastEvaluatedKey,
+                "mails" to emails.map { it -> it.restrict() }
+            )
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
     }
 }

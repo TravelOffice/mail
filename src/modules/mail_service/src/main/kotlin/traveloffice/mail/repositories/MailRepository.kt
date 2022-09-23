@@ -4,6 +4,7 @@ import com.amazonaws.HttpMethod
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
+import com.amazonaws.services.dynamodbv2.document.ItemUtils
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
 import com.amazonaws.services.s3.model.ObjectMetadata
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
 import tech.blueglacier.email.HtmlEmailBody
 import traveloffice.mail.common.Constant
+import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_FETCH
 import traveloffice.mail.common.Constant.Companion.ENCRYPT_SECRET_KEY
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
@@ -335,7 +337,6 @@ class MailRepository {
         mailMessage.pk =
             "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + "${MAILBOX_INDEX}#${mailBox.name}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
-        mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBox.name}"
         return this.dynamoDBMapper.save(mailMessage)
     }
 
@@ -567,5 +568,49 @@ class MailRepository {
         val generatePresignedUrlRequest = GeneratePresignedUrlRequest(mailBucket, objectKey, HttpMethod.PUT)
         val url = this.s3Provider.generatePresignedUrl(generatePresignedUrlRequest)
         return PresignedUrlResponsePayload(url.toString(), url.path)
+    }
+
+    /**
+     * Get [mailBox] mails of [mail] address for given [username] that related to [tenant]
+     *
+     * Returns [List] of [MailMessage] object
+     */
+    fun getMailsInsideMailBox(
+        tenant: String,
+        username: String,
+        mail: String,
+        mailBox: String,
+        lastEvaluatedKeyString: String? = null
+    ): Pair<String, MutableList<MailMessage>> {
+        // Pk, sk
+        val uppercasedMailBox = mailBox.uppercase()
+        val pk =
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#${uppercasedMailBox}"
+        val sk = "$MAILBOX_INDEX#${uppercasedMailBox}"
+        // Build expression attribute values. Then, make query expression
+        val eav: Map<String, AttributeValue> = hashMapOf(
+            ":pk" to AttributeValue().withS(pk),
+            ":lsi1" to AttributeValue().withS(sk)
+        )
+        var lastEvaluatedKey: Map<String, AttributeValue>? = null
+        if (lastEvaluatedKeyString != null) {
+            lastEvaluatedKey =
+                ItemUtils.fromSimpleMap(
+                    Gson().fromJson<Map<String, AttributeValue>>(
+                        lastEvaluatedKeyString,
+                        MutableMap::class.java
+                    )
+                )
+        }
+        val queryExpression = DynamoDBQueryExpression<MailMessage>()
+            .withIndexName("Index1") // Index for sorting
+            .withKeyConditionExpression("pk = :pk and begins_with(lsi1, :lsi1)")
+            .withScanIndexForward(false) // DESC sk
+            .withExclusiveStartKey(lastEvaluatedKey)
+            .withLimit(DEFAULT_NUMBER_OF_MAILS_TO_FETCH) // Limit number of mails returned
+            .withExpressionAttributeValues(eav)
+
+        val result = this.dynamoDBMapper.queryPage(MailMessage::class.java, queryExpression)
+        return Pair(Gson().toJson(ItemUtils.toSimpleMapValue<Any>(result.lastEvaluatedKey)), result.results)
     }
 }

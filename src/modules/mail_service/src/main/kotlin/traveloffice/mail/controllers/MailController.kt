@@ -62,7 +62,7 @@ class MailController {
      * Email param will be validated as email address format
      */
     @GetMapping("/mail-boxes")
-    fun getMailBoxes(@Valid @Email @RequestParam("email") mail: String): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
+    fun getMailBoxes(@Email @RequestParam("email") mail: String): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
         // Get user that own Cognito token
         val authenticatedUser = SecurityContextHolder.getContext().getUser()
         // Get mail boxes for given email
@@ -86,6 +86,24 @@ class MailController {
             )
         )
     }
+
+    @GetMapping("/mails")
+    fun getMailsInsideMailBox(
+        @Email @RequestParam("email") mail: String,
+        @NotEmpty @RequestParam("mailbox") mailbox: String,
+        @RequestParam("token") token: String?
+    ): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Get mails related to mailbox for given email
+        val mailsData = mailService.getMailsInsideMailBox(authenticatedUser, mail, mailbox, token)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = mailsData, message = "Get [${mailbox}] mails successfully"
+            )
+        )
+    }
+
 
     @PostMapping("/sendEmail")
     fun sendEmail() {

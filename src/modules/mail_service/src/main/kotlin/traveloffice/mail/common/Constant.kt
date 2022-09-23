@@ -12,6 +12,7 @@ class Constant {
         const val DEFAULT_VISIBLE_TIME_OUT = 30 * 60
         const val DEFAULT_MAX_NUMBER_OF_MESSAGE = 5
         const val DEFAULT_MAIL_TIMEOUT = 5000
+        const val DEFAULT_NUMBER_OF_MAILS_TO_FETCH = 10
         const val COGNITO_USERNAME_DELIMITER = "#"
         const val ENCRYPT_SECRET_KEY = "ENCRYPT_SECRET_KEY"
         const val REQUIRED_MESSAGE = "is required"
