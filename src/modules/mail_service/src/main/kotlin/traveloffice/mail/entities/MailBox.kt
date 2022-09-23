@@ -3,7 +3,6 @@ package traveloffice.mail.entities
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
-import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 
@@ -38,9 +37,10 @@ class MailBox : BaseModel() {
     /**
      * Returns json object with only exposed values
      */
-    fun toJson(): Map<String, Any> {
-        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
-        val json = gson.fromJson<Map<String, Any>>(gson.toJson(this), MutableMap::class.java).toMutableMap()
+    override fun restrict(): MutableMap<String, Any> {
+        // Get restricted json data
+        val json = super.restrict()
+        // Additional values
         json["name"] = this.name
         return json
     }

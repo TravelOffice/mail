@@ -165,7 +165,24 @@ class MailService {
             val (tenant, username) = authenticatedUser
             return mailRepository
                 .getMailBoxes(tenant, username, mail)
-                .map { it -> it.toJson() }
+                .map { it -> it.restrict() }
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
+    }
+
+    /**
+     * Get mail accounts for [authenticatedUser]
+     *
+     * Returns list of mail accounts  information with exposed data
+     */
+    fun getUserMailAccounts(authenticatedUser: AuthenticatedUser): List<Map<String, Any>> {
+        try {
+            val (tenant, username) = authenticatedUser
+            return mailRepository
+                .getUserMailAccounts(tenant, username)
+                .map { it -> it.restrict() }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e

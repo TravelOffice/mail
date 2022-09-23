@@ -36,7 +36,7 @@ class MailController {
     }
 
     @PostMapping("/link-email")
-    fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<ResponseBody<RestrictedMailAccount>> {
+    fun linkEmail(@Valid @RequestBody mailAccount: MailAccount): ResponseEntity<ResponseBody<Map<String, Any>>> {
         val authenticatedUser = SecurityContextHolder.getContext().getUser()
         mailService.linkEmail(mailAccount, authenticatedUser)
         return ResponseEntity.ok(
@@ -70,6 +70,19 @@ class MailController {
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = mailBoxes, message = "Get mail boxes successfully"
+            )
+        )
+    }
+
+    @GetMapping("/mail-accounts")
+    fun getUserMailAccounts(): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Get mail accounts for authenticated user
+        val accounts = mailService.getUserMailAccounts(authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = accounts, message = "Get user's mail accounts successfully"
             )
         )
     }

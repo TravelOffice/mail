@@ -302,6 +302,27 @@ class MailRepository {
     }
 
     /**
+     * Get mail account for given [username] that belong to [tenant]
+     *
+     * Returns [List] of [MailAccount] object
+     */
+    fun getUserMailAccounts(tenant: String, username: String): List<MailAccount> {
+        // Pk, sk
+        val pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}"
+        val sk = "$MAIL_ACCOUNT_INDEX#"
+        // Build expression attribute values. Then, make query expression
+        val eav: Map<String, AttributeValue> = hashMapOf(
+            ":pk" to AttributeValue().withS(pk),
+            ":sk" to AttributeValue().withS(sk)
+        )
+        val queryExpression = DynamoDBQueryExpression<MailAccount>()
+            .withKeyConditionExpression("pk = :pk and begins_with(sk, :sk)")
+            .withExpressionAttributeValues(eav)
+
+        return this.dynamoDBMapper.query(MailAccount::class.java, queryExpression)
+    }
+
+    /**
      * This method perform to change the mailbox sync status
      *
      * @param mailAccount: The mailbox information.
