@@ -3,6 +3,8 @@ package traveloffice.mail.repositories
 import com.amazonaws.HttpMethod
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
+import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.model.PutObjectRequest
@@ -275,6 +277,27 @@ class MailRepository {
     }
 
     /**
+     * Get mail boxes for given [mail] which related to [tenant] and [username]
+     *
+     * Returns [List] of [MailBox] object
+     */
+    fun getMailBoxes(tenant: String, username: String, mail: String): List<MailBox> {
+        // Pk, sk
+        val pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}"
+        val sk = "$MAILBOX_INDEX#"
+        // Build expression attribute values. Then, make query expression
+        val eav: Map<String, AttributeValue> = hashMapOf(
+            ":pk" to AttributeValue().withS(pk),
+            ":sk" to AttributeValue().withS(sk)
+        )
+        val queryExpression = DynamoDBQueryExpression<MailBox>()
+            .withKeyConditionExpression("pk = :pk and begins_with(sk, :sk)")
+            .withExpressionAttributeValues(eav)
+
+        return this.dynamoDBMapper.query(MailBox::class.java, queryExpression)
+    }
+
+    /**
      * This method perform to change the mailbox sync status
      *
      * @param mailAccount: The mailbox information.
@@ -489,8 +512,7 @@ class MailRepository {
     fun generatePresignedUrl(fileName: String): PresignedUrlResponsePayload {
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
         val objectKey = "${S3_TEMPORARY_UPLOAD_FOLDER}/${UUID.randomUUID()}/${fileName}"
-        val generatePresignedUrlRequest: GeneratePresignedUrlRequest =
-            GeneratePresignedUrlRequest(mailBucket, objectKey, HttpMethod.PUT)
+        val generatePresignedUrlRequest = GeneratePresignedUrlRequest(mailBucket, objectKey, HttpMethod.PUT)
         val url = this.s3Provider.generatePresignedUrl(generatePresignedUrlRequest)
         return PresignedUrlResponsePayload(url.toString(), url.path)
     }

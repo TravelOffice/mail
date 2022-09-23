@@ -16,12 +16,12 @@ import traveloffice.mail.entities.ResponseBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
 import traveloffice.mail.services.MailService
-import java.net.URL
+import java.lang.Exception
 import java.util.function.Consumer
 import javax.validation.ConstraintViolationException
 import javax.validation.Valid
-import javax.validation.constraints.NotBlank
 import javax.validation.constraints.NotEmpty
+import javax.validation.constraints.Email
 
 
 @RestController
@@ -52,6 +52,24 @@ class MailController {
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = presignedUrl, message = "Generate presigned-url successfully"
+            )
+        )
+    }
+
+    /**
+     * API to get mail boxes for given [mail]
+     *
+     * Email param will be validated as email address format
+     */
+    @GetMapping("/mail-boxes")
+    fun getMailBoxes(@Valid @Email @RequestParam("email") mail: String): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Get mail boxes for given email
+        val mailBoxes = mailService.getMailBoxes(mail, authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = mailBoxes, message = "Get mail boxes successfully"
             )
         )
     }

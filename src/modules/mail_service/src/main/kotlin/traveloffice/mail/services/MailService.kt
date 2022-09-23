@@ -12,7 +12,6 @@ import traveloffice.mail.exceptions.FunctionNotImplemented
 import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.repositories.MailRepository
-import java.net.URL
 
 @Service
 @DependsOn("DynamoDBMapper")
@@ -133,6 +132,25 @@ class MailService {
     } catch (e: Exception) {
         logger.error(e.toString())
         throw e
+    }
+
+
+    /**
+     * Get mail boxes for given [mail] which related to [authenticatedUser]
+     * The user [authenticatedUser] contains **tenant** and **username** values
+     *
+     * Returns list of mail boxes information with exposed data
+     */
+    fun getMailBoxes(mail: String, authenticatedUser: AuthenticatedUser): List<Map<String, Any>> {
+        try {
+            val (tenant, username) = authenticatedUser
+            return mailRepository
+                .getMailBoxes(tenant, username, mail)
+                .map { it -> it.toJson() }
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
     }
 
     /**
