@@ -74,6 +74,16 @@ abstract class MailProvider {
     abstract fun getMessageId(message: Message): String
 
     /**
+     * This method perform to get the message reply to from provider
+     *
+     * @param message: The message information.
+
+     * @return The In-Reply-To of the message.
+     * @exception
+     */
+    abstract fun getInRelyTo(message: Message): String?
+
+    /**
      * This method perform to fetch all message from the provider
      *
      * @param mailAccount: The mail account information.

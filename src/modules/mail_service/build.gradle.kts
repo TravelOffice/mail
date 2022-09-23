@@ -35,6 +35,7 @@ dependencies {
 	implementation("tech.blueglacier:email-mime-parser:1.0.5")
 	implementation("javax.xml.bind:jaxb-api:2.4.0-b180830.0359")
 	implementation("com.squareup.okhttp3:okhttp:4.10.0")
+	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
 }
 
 tasks.withType<KotlinCompile> {

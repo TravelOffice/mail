@@ -1,6 +1,7 @@
 package traveloffice.mail
 
 import com.google.gson.Gson
+import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -18,78 +19,108 @@ import traveloffice.mail.exceptions.UnSupportedEvent
 import traveloffice.mail.services.MailMessageQueueService
 import traveloffice.mail.services.MailService
 import traveloffice.mail.services.SecretManagerService
-import javax.annotation.PreDestroy
+import java.io.InputStream
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.stream.IntStream
+import kotlin.streams.toList
 
 
 @SpringBootApplication
-class MailApplication: ApplicationRunner {
-	@Autowired
-	lateinit var secretManagerService: SecretManagerService
-	@Autowired
-	lateinit var messageQueueService: MailMessageQueueService
-	@Autowired
-	lateinit var mailService: MailService
+class MailApplication : ApplicationRunner {
+    @Autowired
+    lateinit var secretManagerService: SecretManagerService
 
-	var logger: Logger = LoggerFactory.getLogger(MailApplication::class.java)
+    @Autowired
+    lateinit var messageQueueService: MailMessageQueueService
 
-	@Bean
-	fun corsConfigurer(): WebMvcConfigurer? {
-		return object : WebMvcConfigurer {
-			override fun addCorsMappings(registry: CorsRegistry) {
-				registry.addMapping("/**").allowedOrigins("*")
-			}
-		}
-	}
+    @Autowired
+    lateinit var mailService: MailService
 
-	override fun run(arg0: ApplicationArguments?) {
-		val mailQueueEnabled: Boolean = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
-		while (mailQueueEnabled) {
-			try {
-				val messages = this.messageQueueService.receiveMessage()
-				if(!messages.isNullOrEmpty()) {
-					logger.info("Receive message from message queue: ${Gson().toJson(messages)}")
-					messages.parallelStream().forEach {
-						this.handleMailMessageEvent(it)
-					}
-				}
-			} catch (e: Exception) {
-				logger.error(e.message)
-			}
-		}
-	}
+    var logger: Logger = LoggerFactory.getLogger(MailApplication::class.java)
 
-	/**
-	 * This method handle mail message event from the Mail Queue
-	 *
-	 * @param event: MailMessageQueueEvent the event which received from the Mail Queue
-	 * @return
-	 * @exception UnSupportedEvent the unsupported event which receive from queue
-	 * currently only supported Sync Mail event
-	 */
-	@Throws(UnSupportedEvent::class)
-	private fun handleMailMessageEvent(event: MailMessageQueueEvent) {
-		try {
-			val messageData = event.data ?: throw MalformedMessageEventData("Malformed message event data $event")
-			when(messageData.action) {
-				MailMessageQueueAction.syncMessage.toString() -> {
-					mailService.syncEmail(messageData)
-				}
-				else -> {
-					throw UnSupportedEvent("Unsupported action event ${messageData.action}")
-				}
-			}
-		} finally {
-			// TODO: Need to do a check before deleting a message
-			logger.info("Going to delete message from message queue: ${Gson().toJson(event)}")
-			this.messageQueueService.deleteMessage(event.receiptHandle)
-		}
-	}
+    companion object {
+        var isMailQueueTask = false
+    }
 
-	@PreDestroy
-	@Throws(java.lang.Exception::class)
-	fun onDestroy() {}
+    @Bean
+    fun corsConfigurer(): WebMvcConfigurer? {
+        return object : WebMvcConfigurer {
+            override fun addCorsMappings(registry: CorsRegistry) {
+                registry.addMapping("/**").allowedOrigins("*")
+            }
+        }
+    }
+
+    override fun run(arg0: ApplicationArguments?) {
+        val isMailQueueTask = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
+        if (isMailQueueTask) {
+            val maxMessagePerTask = secretManagerService.getEnv("MAIL_MAX_MESSAGE_PER_SERVICE_TASK").toInt()
+            runBlocking {
+                repeat(maxMessagePerTask) {
+                    launch(Dispatchers.IO) {
+                        pollMessageQueueEvent()
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun pollMessageQueueEvent() {
+        while (true) {
+            try {
+                val messages = this.messageQueueService.receiveMessage(maxNumberOfMessages = 1)
+                if (!messages.isNullOrEmpty()) {
+                    logger.info(
+                        "Mail Queue Service Task: Receive message from message queue: ${
+                            Gson().toJson(
+                                messages
+                            )
+                        }"
+                    )
+                    this.handleMailMessageEvent(messages.first())
+                }
+            } catch (e: Exception) {
+                logger.error("Mail Queue Service Task: Receive error: ", e)
+            }
+        }
+    }
+
+    /**
+     * This method handle mail message event from the Mail Queue
+     *
+     * @param event: MailMessageQueueEvent the event which received from the Mail Queue
+     * @return
+     * @exception UnSupportedEvent the unsupported event which receive from queue
+     * currently only supported Sync Mail event
+     */
+    @Throws(UnSupportedEvent::class)
+    private suspend fun handleMailMessageEvent(event: MailMessageQueueEvent) {
+        try {
+            val messageData = event.data
+                ?: throw MalformedMessageEventData("Handler Mail Message: Malformed message event data $event")
+            when (messageData.action) {
+                MailMessageQueueAction.syncMessage.toString() -> {
+                    mailService.syncEmail(messageData)
+                }
+
+                else -> {
+                    throw UnSupportedEvent("Handler Mail Message: Unsupported action event ${messageData.action}")
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Handler Mail Message: Receive error: ", e)
+        } finally {
+            /**
+             * Delete the message after received to prevent the deviation in Mail Queue Service auto-scaling
+             */
+            this.messageQueueService.deleteMessage(event.receiptHandle).also {
+                logger.info("Handler Mail Message: Deleted message from message queue: ${Gson().toJson(event)}")
+            }
+        }
+    }
 }
 
 fun main(args: Array<String>) {
-	runApplication<MailApplication>(*args)
+    runApplication<MailApplication>(*args)
 }

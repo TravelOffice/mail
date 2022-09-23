@@ -7,7 +7,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
-import traveloffice.mail.common.Constant.Companion.DEFAULT_MAX_NUMBER_OF_MESSAGE
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAX_NUMBER_MESSAGE
+import traveloffice.mail.common.Constant.Companion.DEFAULT_WAIT_TIME_SECOND
 import traveloffice.mail.entities.MailMessageQueueData
 import traveloffice.mail.entities.MailMessageQueueEvent
 import traveloffice.mail.repositories.MessageQueueRepository
@@ -28,9 +29,12 @@ class MailMessageQueueService {
      * @return MailMessageQueueEvent Result of the ReceiveMessage operation returned by the service.
      * @exception
      */
-    fun receiveMessage(): List<MailMessageQueueEvent>? {
+    fun receiveMessage(
+        waitTimeSeconds: Int? = DEFAULT_WAIT_TIME_SECOND,
+        maxNumberOfMessages: Int? = DEFAULT_MAX_NUMBER_MESSAGE
+    ): List<MailMessageQueueEvent>? {
         val queueUrl = this.secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME")
-        val messagesData = this.messageQueueRepository.receiveMessage(queueUrl, DEFAULT_MAX_NUMBER_OF_MESSAGE)
+        val messagesData = this.messageQueueRepository.receiveMessage(queueUrl, waitTimeSeconds, maxNumberOfMessages)
         return messagesData?.messages()?.map {
             var data: MailMessageQueueData? = null
             try {

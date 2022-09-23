@@ -62,4 +62,15 @@ class POP3Provider : MailProvider() {
      */
     @Override
     override fun getMessageId(message: Message): String = (message as POP3Message).messageID
+
+    /**
+     * This method perform to get the message reply to from provider
+     *
+     * @param message: The message information.
+
+     * @return The In-Reply-To of the message.
+     * @exception
+     */
+    @Override
+    override fun getInRelyTo(message: Message): String? = (message as POP3Message).getHeader("In-Reply-To")?.first()
 }

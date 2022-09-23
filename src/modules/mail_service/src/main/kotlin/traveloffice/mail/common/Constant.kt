@@ -9,6 +9,7 @@ class Constant {
         const val MESSAGE_INDEX = "MESSAGE"
         const val DEFAULT_MAX_NUMBER_MESSAGE = 5
         const val DEFAULT_WAIT_TIME_SECOND = 5
+        const val DEFAULT_VISIBLE_TIME_OUT = 30 * 60
         const val DEFAULT_MAX_NUMBER_OF_MESSAGE = 5
         const val DEFAULT_MAIL_TIMEOUT = 5000
         const val COGNITO_USERNAME_DELIMITER = "#"
@@ -20,6 +21,7 @@ class Constant {
         const val LESS_THAN_EQUAL_MESSAGE = "should be less than or equal to"
         const val BLANK_MESSAGE = "cannot be blank"
         const val MAIL_NEW_EMAIL_RECEIVED = "MAIL_NEW_EMAIL_RECEIVED"
+        const val MAIL_SYNC_EMAIL_FAILED = "MAIL_SYNC_EMAIL_FAILED"
         const val MAIL_BUCKET = "MAIL_BUCKET"
         const val S3_TEMPORARY_UPLOAD_FOLDER = "temporary-upload"
         const val MAIL_CDN = "MAIL_CDN"
