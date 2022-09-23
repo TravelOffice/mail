@@ -3,7 +3,7 @@ package traveloffice.mail.entities
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
-import com.google.gson.Gson
+import com.google.gson.annotations.Expose
 import traveloffice.mail.common.Constant.Companion.BLANK_MESSAGE
 import traveloffice.mail.common.Constant.Companion.GREATER_THAN_EQUAL_MESSAGE
 import traveloffice.mail.common.Constant.Companion.INVALID_MESSAGE
@@ -21,10 +21,12 @@ class MailAccount : BaseModel() {
     @DynamoDBAttribute(attributeName = "email")
     @Email(message = INVALID_MESSAGE)
     @NotBlank(message = REQUIRED_MESSAGE)
+    @Expose
     lateinit var email: String
 
     @DynamoDBAttribute(attributeName = "name")
     @NotBlank(message = REQUIRED_MESSAGE)
+    @Expose
     lateinit var name: String
 
     @DynamoDBAttribute(attributeName = "protocol")
@@ -88,6 +90,7 @@ class MailAccount : BaseModel() {
         array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"],
         message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]"
     )
+    @Expose
     lateinit var provider: String
 
     @DynamoDBAttribute(attributeName = "tenant")
@@ -96,7 +99,11 @@ class MailAccount : BaseModel() {
     @DynamoDBAttribute(attributeName = "username")
     lateinit var username: String
 
-    fun restrict(): RestrictedMailAccount {
-        return Gson().fromJson(Gson().toJson(this), RestrictedMailAccount::class.java)
+    /**
+     * Returns json object with only exposed values
+     */
+    override fun restrict(): MutableMap<String, Any> {
+        // Get restricted json data
+        return super.restrict()
     }
 }

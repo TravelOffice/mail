@@ -1,6 +1,7 @@
 package traveloffice.mail.entities
 
 import com.amazonaws.services.dynamodbv2.datamodeling.*
+import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
 import java.util.*
 
@@ -34,4 +35,11 @@ open class BaseModel {
     @Expose
     @DynamoDBAttribute(attributeName = "updatedAt")
     var updatedAt: Long = Date().time
+
+    open fun restrict(): MutableMap<String, Any> {
+        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
+        return gson
+            .fromJson<Map<String, Any>>(gson.toJson(this), MutableMap::class.java)
+            .toMutableMap()
+    }
 }

@@ -4,10 +4,7 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable
 import com.google.gson.Gson
-import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
-import com.google.gson.reflect.TypeToken
-import java.lang.reflect.Type
 import javax.mail.Flags
 import javax.mail.Flags.Flag
 import javax.mail.internet.InternetAddress
@@ -84,15 +81,17 @@ class MailMessage : BaseModel() {
             }
         }
 
-    fun clone(): MailMessage {
-        val stringAnimal = Gson().toJson(this, MailMessage::class.java)
-        return Gson().fromJson(stringAnimal, MailMessage::class.java)
+    /**
+     * Returns json object with only exposed values
+     */
+    override fun restrict(): MutableMap<String, Any> {
+        // Get restricted json data
+        return super.restrict()
     }
 
-    fun restrict(): Map<String, Any> {
-        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
-        val mapType: Type = object : TypeToken<Map<String, Any>?>() {}.type
-        return gson.fromJson(gson.toJson(this), mapType)
+    private fun clone(): MailMessage {
+        val stringAnimal = Gson().toJson(this, MailMessage::class.java)
+        return Gson().fromJson(stringAnimal, MailMessage::class.java)
     }
 
     fun restrict(CDN: String): Map<String, Any> {
