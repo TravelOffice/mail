@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
 import traveloffice.mail.common.Constant
+import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
 import traveloffice.mail.exceptions.FunctionNotImplemented
@@ -15,6 +16,7 @@ import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.repositories.MailRepository
 import java.util.*
+import javax.mail.Flags
 
 @Service
 @DependsOn("DynamoDBMapper")
@@ -200,6 +202,32 @@ class MailService {
     } catch (e: Exception) {
         logger.error(e.toString())
         throw e
+    }
+
+    /**
+     * Get mail boxes for given [mail] [mailId] which related to [authenticatedUser]
+     * The user [authenticatedUser] contains **tenant** and **username** values
+     *
+     * Returns list of thread mail messages information with exposed data
+     */
+    fun getMailMessagesFromMailBox(
+        getMailParams: GetMailRequestParams,
+        authenticatedUser: AuthenticatedUser
+    ): List<Map<String, Any>> {
+        try {
+            val (tenant, username) = authenticatedUser
+            val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
+            // Mark the mail message as SEEN
+            mailRepository.changeMailMessageStatus(
+                tenant, username, getMailParams,
+                Flags(Flags.Flag.RECENT), Flags(Flags.Flag.SEEN)
+            )
+            return mailRepository.getThreadMails(tenant, username, getMailParams)
+                .map { it -> it.toJsonWithCDN(mailCDN) }
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
     }
 
     /**
