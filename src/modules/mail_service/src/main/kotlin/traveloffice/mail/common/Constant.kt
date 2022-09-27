@@ -10,9 +10,11 @@ class Constant {
         const val DEFAULT_MAX_NUMBER_MESSAGE = 5
         const val DEFAULT_WAIT_TIME_SECOND = 5
         const val DEFAULT_VISIBLE_TIME_OUT = 30 * 60
+        const val DEFAULT_PRESIGNED_URL_EXPIRATION: Int = 5
         const val DEFAULT_MAX_NUMBER_OF_MESSAGE = 5
         const val DEFAULT_MAIL_TIMEOUT = 5000
         const val DEFAULT_NUMBER_OF_MAILS_TO_FETCH = 10
+        const val DEFAULT_ENCODING = "UTF-8"
         const val COGNITO_USERNAME_DELIMITER = "#"
         const val ENCRYPT_SECRET_KEY = "ENCRYPT_SECRET_KEY"
         const val REQUIRED_MESSAGE = "is required"
@@ -36,6 +38,7 @@ class Constant {
         const val ERROR_CONNECT_TO_OUTBOUND_SERVER = "ERROR_CONNECT_TO_OUTBOUND_SERVER"
         const val ERROR_LOGIN_TO_OUTBOUND_SERVER = "ERROR_LOGIN_TO_OUTBOUND_SERVER"
         const val ERROR_EMAIL_ADDRESS_IS_INVALID = "ERROR_EMAIL_ADDRESS_IS_INVALID"
+        const val ERROR_DOWNLOAD_ATTACHMENT = "ERROR_DOWNLOAD_ATTACHMENT"
         const val ERROR_UNKNOWN = "ERROR_UNKNOWN"
     }
 }

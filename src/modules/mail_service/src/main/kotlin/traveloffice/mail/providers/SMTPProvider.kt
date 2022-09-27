@@ -1,25 +1,25 @@
 package traveloffice.mail.providers
 
-import com.sun.mail.smtp.SMTPAddressFailedException
 import com.sun.mail.util.MailConnectException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Repository
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAIL_TIMEOUT
 import traveloffice.mail.common.Constant.Companion.ERROR_CONNECT_TO_OUTBOUND_SERVER
-import traveloffice.mail.common.Constant.Companion.ERROR_LOGIN_TO_OUTBOUND_SERVER
 import traveloffice.mail.common.Constant.Companion.ERROR_EMAIL_ADDRESS_IS_INVALID
+import traveloffice.mail.common.Constant.Companion.ERROR_LOGIN_TO_OUTBOUND_SERVER
 import traveloffice.mail.entities.MailAccount
 import traveloffice.mail.entities.MailMessage
 import traveloffice.mail.exceptions.ResponseException
+import java.io.InputStream
 import java.util.*
 import javax.activation.DataHandler
 import javax.activation.DataSource
-import javax.activation.FileDataSource
 import javax.mail.*
 import javax.mail.internet.MimeBodyPart
 import javax.mail.internet.MimeMessage
 import javax.mail.internet.MimeMultipart
+import javax.mail.util.ByteArrayDataSource
 
 
 @Repository
@@ -60,17 +60,27 @@ class SMTPProvider {
         try {
             val session = this.authenticate(mailAccount)
             val message: Message = MimeMessage(session)
+            // Set from, to, cc, bcc email addresses
             message.setFrom(mailMessage.fromAsInternetAddress)
             message.setRecipients(
                 Message.RecipientType.TO, mailMessage.toAsInternetAddresses.toTypedArray()
             )
+            message.setRecipients(
+                Message.RecipientType.CC, mailMessage.ccAsInternetAddresses.toTypedArray()
+            )
+            message.setRecipients(
+                Message.RecipientType.BCC, mailMessage.bccAsInternetAddresses.toTypedArray()
+            )
             message.subject = mailMessage.subject
             // Add message content
-            val mimeBodyPart = MimeBodyPart()
-            mimeBodyPart.setContent(mailMessage.htmlContent, "text/html; charset=utf-8")
             val multipart: Multipart = MimeMultipart()
-            multipart.addBodyPart(mimeBodyPart)
+            this.addBodyPart(multipart, mailMessage.htmlContentInputStream, "text/html; charset=utf-8")
+            // Add message attachment
+            mailMessage.attachments?.forEach {
+                this.addBodyPart(multipart, it.inputStream, it.mimeType, it.name)
+            }
             message.setContent(multipart)
+            // Send mail
             Transport.send(message)
             logger.info("Send email successfully")
         } catch (e: MailConnectException) {
@@ -79,21 +89,16 @@ class SMTPProvider {
             throw ResponseException(e.message.toString(), ERROR_LOGIN_TO_OUTBOUND_SERVER)
         } catch (e: SendFailedException) {
             throw ResponseException(e.message.toString(), ERROR_EMAIL_ADDRESS_IS_INVALID)
+        } catch (e: Exception) {
+            logger.error(e.stackTraceToString())
         }
     }
 
-    /**
-     * This method performs add attachments to mail
-     * @param multipart Multipart is a container that holds multiple body parts
-     * @param filename Name of file on s3 bucket
-     * @return void
-     */
-    private fun addAttachment(multipart: Multipart, filename: String) {
-        //TOTO: Need to get file from s3 bucket
-        val source: DataSource = FileDataSource(filename)
+    private fun addBodyPart(multipart: Multipart, inputStream: InputStream, mimeType: String, fileName: String = "") {
         val messageBodyPart: BodyPart = MimeBodyPart()
-        messageBodyPart.dataHandler = DataHandler(source)
-        messageBodyPart.fileName = filename
+        val dataSrc: DataSource = ByteArrayDataSource(inputStream.readAllBytes(), mimeType)
+        messageBodyPart.dataHandler = DataHandler(dataSrc)
+        messageBodyPart.fileName = fileName
         multipart.addBodyPart(messageBodyPart)
     }
 }

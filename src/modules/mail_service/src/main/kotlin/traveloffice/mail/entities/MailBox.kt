@@ -34,6 +34,9 @@ class MailBox : BaseModel() {
     @DynamoDBAttribute(attributeName = "syncStatus")
     var syncStatus: String? = null
 
+    @Expose
+    @DynamoDBAttribute(attributeName = "order")
+    var order: Int = 0
     /**
      * Returns json object with only exposed values
      */

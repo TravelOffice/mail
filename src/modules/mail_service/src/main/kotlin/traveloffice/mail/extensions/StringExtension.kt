@@ -1,5 +1,7 @@
 package traveloffice.mail.extensions
 
+import java.io.InputStream
+import java.net.URLEncoder
 import java.security.Key
 import java.util.*
 import javax.crypto.Cipher
@@ -19,4 +21,8 @@ fun String.decrypt(secretKey: String): String {
     cipher.init(Cipher.DECRYPT_MODE, aesKey)
     val decrypted = Base64.getDecoder().decode(this)
     return String(cipher.doFinal(decrypted))
+}
+
+fun String.encodeToURL(): String {
+    return URLEncoder.encode(this, "UTF-8")
 }

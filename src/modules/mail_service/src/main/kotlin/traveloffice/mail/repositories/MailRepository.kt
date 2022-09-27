@@ -7,9 +7,7 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
 import com.amazonaws.services.dynamodbv2.datamodeling.KeyPair
 import com.amazonaws.services.dynamodbv2.document.ItemUtils
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
-import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
-import com.amazonaws.services.s3.model.ObjectMetadata
-import com.amazonaws.services.s3.model.PutObjectRequest
+import com.amazonaws.services.s3.model.*
 import com.google.gson.Gson
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -19,7 +17,9 @@ import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
 import tech.blueglacier.email.HtmlEmailBody
 import traveloffice.mail.common.Constant
+import traveloffice.mail.common.Constant.Companion.DEFAULT_ENCODING
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_FETCH
+import traveloffice.mail.common.Constant.Companion.DEFAULT_PRESIGNED_URL_EXPIRATION
 import traveloffice.mail.common.Constant.Companion.ENCRYPT_SECRET_KEY
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
@@ -35,15 +35,20 @@ import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_SUBJECT
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.entities.*
 import traveloffice.mail.exceptions.MailAccountWasLinked
+import traveloffice.mail.exceptions.S3DownloadFileException
 import traveloffice.mail.exceptions.UnSupportedInboxType
 import traveloffice.mail.extensions.decrypt
+import traveloffice.mail.extensions.encodeToURL
 import traveloffice.mail.extensions.encrypt
+import traveloffice.mail.extensions.subString
 import traveloffice.mail.providers.AppSyncProvider
 import traveloffice.mail.providers.MailProviderFactory
 import traveloffice.mail.providers.S3Provider
 import traveloffice.mail.providers.SMTPProvider
 import traveloffice.mail.services.SecretManagerService
 import java.net.URLEncoder
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.util.*
 import javax.mail.Flags
 import javax.mail.Message
@@ -126,14 +131,8 @@ class MailRepository {
         var briefContent = ""
         if (email.plainTextEmailBody != null) {
             val emailContentStream = email.plainTextEmailBody.`is`
-            if (emailContentStream.available() > 0) {
-                val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
-                briefContent = if (defaultBriefContentSize < emailContentStream.available()) {
-                    String(emailContentStream.readNBytes(defaultBriefContentSize))
-                } else {
-                    String(emailContentStream.readAllBytes())
-                }
-            }
+            val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
+            briefContent = emailContentStream.subString(defaultBriefContentSize)
         }
 
         // Create the mail message information
@@ -154,7 +153,7 @@ class MailRepository {
         mailMessage.attachments = getAttachmentsFromEmail(
             mailAccount, mailMessage.messageId, email.attachments
         )
-        mailMessage.size = email.emailSize
+        mailMessage.size = email.emailSize.toLong()
         return mailMessage
     }
 
@@ -228,15 +227,15 @@ class MailRepository {
      * @exception
      */
     private fun getAttachmentsFromEmail(
-        mailAccount: MailAccount, messageId: String, attachments: List<Attachment>
+        mailAccount: MailAccount, messageId: String, attachments: List<Attachment>,
     ): List<MailAttachment>? {
         if (attachments.isEmpty()) return null
         return attachments.map {
             val attachment = MailAttachment()
             attachment.mimeType = it.bd.mimeType
             attachment.name = it.attachmentName
-            attachment.size = it.attachmentSize
-            attachment.encoding = it.bd.charset ?: ""
+            attachment.size = it.attachmentSize.toLong()
+            attachment.encoding = it.bd.charset ?: DEFAULT_ENCODING
             attachment.inputStream = it.`is`
             attachment.path = this.storeAttachment(mailAccount, messageId, attachment)
             return@map attachment
@@ -248,16 +247,16 @@ class MailRepository {
      *
      * @param tenant: The tenant identify.
      * @param username: The username.
-     * @param account: The mail account name stand for email.
+     * @param email: The email address
      *
      * @return The email account information.
      * @exception
      */
-    fun getMailAccount(tenant: String, username: String, account: String): MailAccount? {
+    fun getMailAccount(tenant: String, username: String, email: String): MailAccount? {
         val mailAccount = this.dynamoDBMapper.load(
             MailAccount::class.java,
             "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}",
-            "${MAIL_ACCOUNT_INDEX}#${account}"
+            "${MAIL_ACCOUNT_INDEX}#${email}"
         )
         //Decrypt password
         val encryptionKey = this.secretManagerService.getAWSSecretValue(ENCRYPT_SECRET_KEY)
@@ -402,12 +401,12 @@ class MailRepository {
      * @return
      * @exception
      */
-    fun storeEmailToDatabase(mailAccount: MailAccount, mailBox: MailBox, mailMessage: MailMessage) {
+    fun storeEmailToDatabase(mailAccount: MailAccount, mailBoxName: String, mailMessage: MailMessage) {
         mailMessage.pk =
-            "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + "${MAILBOX_INDEX}#${mailBox.name}"
+            "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + "${MAILBOX_INDEX}#${mailBoxName}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
         (mailMessage.receivedDate ?: mailMessage.sentDate)?.let {
-            mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBox.name}#${it}"
+            mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBoxName}#${it}"
         }
         return this.dynamoDBMapper.save(mailMessage)
     }
@@ -432,7 +431,7 @@ class MailRepository {
         val mailObjectKey = "${tenantKeyPrefix}/${attachment.name}"
         val metadata = ObjectMetadata()
         metadata.contentType = attachment.mimeType
-        metadata.contentLength = attachment.size.toLong()
+        metadata.contentLength = attachment.size
         metadata.contentEncoding = attachment.encoding
         val putObjectRequest = PutObjectRequest(mailBucket, mailObjectKey, attachment.inputStream, metadata)
         this.s3Provider.putObject(putObjectRequest)
@@ -502,7 +501,8 @@ class MailRepository {
     /**
      * This method perform to update the mailbox size
      *
-     * @param mailBox: The mailbox information.
+     * @param mailBoxPk: The mailbox pk
+     * @param mailBoxSk: The mailbox sk
      * @param size: The change size to be updated
      *  + for increase size,
      *  - for decrease size.
@@ -516,9 +516,7 @@ class MailRepository {
      * @return The new storage size of the mailbox
      * @exception
      */
-    fun updateMailBoxMetric(mailBox: MailBox, size: Int, count: Int, unread: Int) {
-        val mailBoxPk = mailBox.pk
-        val mailBoxSk = mailBox.sk
+    fun updateMailBoxMetric(mailBoxPk: String, mailBoxSk: String, size: Long, count: Int, unread: Int) {
         val currentMailBox = this.dynamoDBMapper.load(MailBox::class.java, mailBoxPk, mailBoxSk)
         val box = MailBox()
         box.pk = mailBoxPk
@@ -608,11 +606,8 @@ class MailRepository {
     }
 
     /**
-     * This method to save mail account to dynamo db
-     *
-     * @param mailAccount The mail account information
-     * @param authenticatedUser The authenticated user information
-     * @param encryptionKey The secret key for encrypting inbound/outbound password
+     * Link [mailAccount] of [authenticatedUser] to our system and encryption password with [encryptionKey]
+     * Throw [Exception] when failed to link email
      */
     fun linkEmail(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser, encryptionKey: String) = try {
         val userPk = "$TENANT_INDEX#${authenticatedUser.tenant}#$USER_INDEX#${authenticatedUser.username}"
@@ -620,12 +615,13 @@ class MailRepository {
         mailAccount.pk = userPk
         mailAccount.sk = "$MAIL_ACCOUNT_INDEX#${mailAccount.email}"
         // Save default mailbox to dynamodb
-        for (name in Constant.DEFAULT_MAILBOX) {
+        for ((index, name) in Constant.DEFAULT_MAILBOX.withIndex()) {
             val mailBox = MailBox()
             mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#$MAILBOX_INDEX"
             mailBox.sk = "$MAILBOX_INDEX#$name"
             mailBox.count = 0
             mailBox.unread = 0
+            mailBox.order = index
             this.dynamoDBMapper.save(mailBox)
         }
         // Encrypt mail password
@@ -642,18 +638,66 @@ class MailRepository {
         throw Exception("Failed to link mail account ${mailAccount.email}")
     }
 
+    fun sendEmail(mailAccount: MailAccount, mailMessage: MailMessage) {
+        // Send email
+        this.smtpProvider.sendMail(mailAccount, mailMessage)
+    }
+
     /**
-     * This method performs generate s3 presigned url
-     *
-     * @params fileName The name of file that will be uploaded to s3
-     * @return PresignedUrlResponsePayload object
+     * Download [objectKey] from s3 bucket
      */
-    fun generatePresignedUrl(fileName: String): PresignedUrlResponsePayload {
+    fun getObjectFromS3(objectKey: String): S3ObjectInputStream {
+        val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val getObjectRequest = GetObjectRequest(mailBucket, objectKey)
+        val fileObject = this.s3Provider.getObject(getObjectRequest)
+        val inputStream = fileObject?.objectContent
+        if (inputStream != null) {
+            return inputStream
+        } else {
+            throw S3DownloadFileException("Can not download attachment [${objectKey}]")
+        }
+    }
+
+    /**
+     * Store sent email [mailMessage] of [tenant], [username] to s3 bucket
+     * Return total size of email
+     */
+    fun storeSentEmailToS3(tenant: String, username: String, mailMessage: MailMessage) {
+        val email = mailMessage.fromAsInternetAddress
+        val messageId = mailMessage.messageId
+        val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val mailCdn = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
+
+        // Move html content
+        val tenantKeyPrefix = "${tenant}/${username}/${email}/${messageId}"
+        val htmlObjectKey = "${tenantKeyPrefix}/htmlContent/index.html"
+        this.s3Provider.moveObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
+        mailMessage.htmlContent = "${mailCdn}/${htmlObjectKey.encodeToURL()}"
+        mailMessage.size = this.s3Provider.getObjectSize(mailBucket, htmlObjectKey)
+
+        // Move attachments
+        mailMessage.attachments?.forEach {
+            val attachmentObjectKey = "${tenantKeyPrefix}/${it.name}"
+            this.s3Provider.moveObject(mailBucket, it.path, attachmentObjectKey, it.mimeType, it.encoding)
+            it.path = "${mailCdn}/${attachmentObjectKey.encodeToURL()}"
+            mailMessage.size += this.s3Provider.getObjectSize(mailBucket, attachmentObjectKey)
+        }
+    }
+
+    /**
+     * Generate presigned url to put [fileName] with [contentType] to s3 bucket
+     * Return [PresignedUrlResponsePayload] object
+     */
+    fun generatePresignedUrl(fileName: String, contentType: String): PresignedUrlResponsePayload {
+        val localTime = LocalDateTime.now().plusMinutes(DEFAULT_PRESIGNED_URL_EXPIRATION.toLong())
+        val expiration = Date.from(localTime.atZone(ZoneId.systemDefault()).toInstant())
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
         val objectKey = "${S3_TEMPORARY_UPLOAD_FOLDER}/${UUID.randomUUID()}/${fileName}"
-        val generatePresignedUrlRequest = GeneratePresignedUrlRequest(mailBucket, objectKey, HttpMethod.PUT)
+        val generatePresignedUrlRequest =
+            GeneratePresignedUrlRequest(mailBucket, objectKey, HttpMethod.PUT).withContentType(contentType)
+                .withExpiration(expiration)
         val url = this.s3Provider.generatePresignedUrl(generatePresignedUrlRequest)
-        return PresignedUrlResponsePayload(url.toString(), url.path)
+        return PresignedUrlResponsePayload(url.toString(), objectKey)
     }
 
     /**
@@ -669,10 +713,10 @@ class MailRepository {
         lastEvaluatedKeyString: String? = null
     ): Pair<String, MutableList<MailMessage>> {
         // Pk, sk
-        val uppercasedMailBox = mailBox.uppercase()
+        val uppercaseMailBox = mailBox.uppercase()
         val pk =
-            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#${uppercasedMailBox}"
-        val sk = "$MAILBOX_INDEX#${uppercasedMailBox}"
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#${uppercaseMailBox}"
+        val sk = "$MAILBOX_INDEX#${uppercaseMailBox}"
         // Build expression attribute values. Then, make query expression
         val eav: Map<String, AttributeValue> = hashMapOf(
             ":pk" to AttributeValue().withS(pk),

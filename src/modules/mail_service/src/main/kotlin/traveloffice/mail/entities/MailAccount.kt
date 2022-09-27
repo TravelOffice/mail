@@ -18,17 +18,18 @@ import javax.validation.constraints.NotBlank
 
 @DynamoDBTable(tableName = "mail_table")
 class MailAccount : BaseModel() {
+    @Expose
     @DynamoDBAttribute(attributeName = "email")
     @Email(message = INVALID_MESSAGE)
     @NotBlank(message = REQUIRED_MESSAGE)
-    @Expose
     lateinit var email: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "name")
     @NotBlank(message = REQUIRED_MESSAGE)
-    @Expose
     lateinit var name: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "protocol")
     @OneOf(array = ["imap", "pop3"], message = "$ONE_OF_MESSAGE [imap, pop3]")
     lateinit var protocol: String
@@ -40,19 +41,23 @@ class MailAccount : BaseModel() {
             else protocol
         }
 
+    @Expose
     @DynamoDBAttribute(attributeName = "inboundHost")
     @NotBlank(message = REQUIRED_MESSAGE)
     lateinit var inboundHost: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "inboundPort")
     @Min(value = 25, message = "$GREATER_THAN_EQUAL_MESSAGE 25")
     @Max(value = 995, message = "$LESS_THAN_EQUAL_MESSAGE 995")
     var inboundPort: Int = 993
 
+    @Expose
     @DynamoDBAttribute(attributeName = "inboundSslMode")
     @OneOf(array = ["none", "ssl/tls", "starttls"], message = "$ONE_OF_MESSAGE [none, ssl/tls, starttls]")
     lateinit var inboundSslMode: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "inboundUser")
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var inboundUser: String
@@ -61,19 +66,23 @@ class MailAccount : BaseModel() {
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var inboundPassword: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "outboundHost")
     @NotBlank(message = REQUIRED_MESSAGE)
     lateinit var outboundHost: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "outboundPort")
     @Min(value = 25, message = "$GREATER_THAN_EQUAL_MESSAGE 25")
     @Max(value = 995, message = "$LESS_THAN_EQUAL_MESSAGE 995")
     var outboundPort: Int = 25
 
+    @Expose
     @DynamoDBAttribute(attributeName = "outboundSslMode")
     @OneOf(array = ["none", "ssl/tls", "starttls"], message = "$ONE_OF_MESSAGE [none, ssl/tls, starttls]")
     lateinit var outboundSslMode: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "outboundUser")
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var outboundUser: String
@@ -82,20 +91,23 @@ class MailAccount : BaseModel() {
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var outboundPassword: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "signature")
     var signature: String? = null
 
+    @Expose
     @DynamoDBAttribute(attributeName = "provider")
     @OneOf(
         array = ["Gmail", "Outlook", "iCloud", "Yahoo", "Other"],
         message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]"
     )
-    @Expose
     lateinit var provider: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "tenant")
     lateinit var tenant: String
 
+    @Expose
     @DynamoDBAttribute(attributeName = "username")
     lateinit var username: String
 

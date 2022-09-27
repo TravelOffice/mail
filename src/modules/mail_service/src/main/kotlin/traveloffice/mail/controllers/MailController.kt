@@ -1,5 +1,7 @@
 package traveloffice.mail.controllers
 
+import com.google.gson.JsonObject
+import com.nimbusds.jose.shaded.json.JSONObject
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -49,8 +51,8 @@ class MailController {
     }
 
     @GetMapping("/presigned-url")
-    fun getPresignedUrl(@RequestParam @NotEmpty fileName: String): ResponseEntity<ResponseBody<PresignedUrlResponsePayload>> {
-        val presignedUrl = mailService.generatePresignedUrl(fileName)
+    fun getPresignedUrl(@RequestParam @NotEmpty fileName: String, @RequestParam @NotEmpty contentType: String): ResponseEntity<ResponseBody<PresignedUrlResponsePayload>> {
+        val presignedUrl = mailService.generatePresignedUrl(fileName, contentType)
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = presignedUrl, message = "Generate presigned-url successfully"
@@ -119,10 +121,15 @@ class MailController {
         )
     }
 
-
-    @PostMapping("/sendEmail")
-    fun sendEmail() {
-        TODO("Method not implemented yet")
+    @PostMapping("/send-email")
+    fun sendEmail(@Valid @RequestBody sendMailRequestPayload: SendMailRequestPayload): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        val mailMessage = mailService.sendEmail(authenticatedUser, sendMailRequestPayload)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = mailMessage.restrict(), message = "Send email successfully"
+            )
+        )
     }
 
     /**

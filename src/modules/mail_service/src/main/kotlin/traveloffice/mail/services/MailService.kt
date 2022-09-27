@@ -1,21 +1,28 @@
 package traveloffice.mail.services
 
 import com.amazonaws.services.kms.model.NotFoundException
+import com.google.gson.GsonBuilder
 import kotlinx.coroutines.sync.withLock
+import org.jsoup.Jsoup
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
 import traveloffice.mail.common.Constant
+import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
+import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
+import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
+import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
-import traveloffice.mail.exceptions.FunctionNotImplemented
 import traveloffice.mail.exceptions.InvalidArguments
+import traveloffice.mail.exceptions.MailAccountNotExistException
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.exceptions.MailBoxNotExisted
+import traveloffice.mail.extensions.subString
 import traveloffice.mail.repositories.MailRepository
 import java.util.*
 import javax.mail.Flags
@@ -32,15 +39,53 @@ class MailService {
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
     /**
-     * This method use to send the email to the provider
-     *
-     * @param data: MailMessageQueueData the event data which received from the Mail Queue
-     * @return
-     * @exception
+     * [authenticatedUser] user send email with [sendMailRequestPayload]
+     * Return [MailMessage] object
      */
-    fun sendEmail(data: MailMessageQueueData) {
-        // TODO: Send Email will be implemented later
-        throw FunctionNotImplemented("Send Email will be implemented later")
+    fun sendEmail(authenticatedUser: AuthenticatedUser, sendMailRequestPayload: SendMailRequestPayload): MailMessage {
+        val gson = GsonBuilder().create()
+        val storeMessage = gson.fromJson(gson.toJson(sendMailRequestPayload), MailMessage::class.java)
+        val sendingMessage = gson.fromJson(gson.toJson(sendMailRequestPayload), MailMessage::class.java)
+
+        // Check mail account exist or not
+        val emailAddress = sendingMessage.fromAsInternetAddress.address
+        val (tenant, username) = authenticatedUser
+        val mailAccount: MailAccount = this.mailRepository.getMailAccount(
+            tenant,
+            username,
+            emailAddress
+        ) ?: throw MailAccountNotExistException("Mail account [$emailAddress] doesn't exist")
+
+        // Download Html content from S3 Pre-signed url
+        sendingMessage.htmlContentInputStream = this.mailRepository.getObjectFromS3(sendingMessage.htmlContent)
+        // Download attachments from s3 bucket
+        if (sendingMessage.attachments != null) {
+            sendingMessage.attachments?.forEach {
+                it.inputStream = this.mailRepository.getObjectFromS3(it.path)
+            }
+        }
+
+        // Send email
+        this.mailRepository.sendEmail(mailAccount, sendingMessage)
+
+        // Copy Html content and attachments to mail folder on s3
+        storeMessage.messageId = UUID.randomUUID().toString()
+        this.mailRepository.storeSentEmailToS3(tenant, username, storeMessage)
+
+        // Parse brief content from html content
+        val doc = Jsoup.parse(this.mailRepository.getObjectFromS3(sendingMessage.htmlContent), "UTF-8", storeMessage.htmlContent)
+        val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
+        storeMessage.briefContent = doc.text().byteInputStream().subString(defaultBriefContentSize)
+
+        // Store email to dynamo db
+        val sentMailBox = "SENT"
+        this.mailRepository.storeEmailToDatabase(mailAccount, sentMailBox, storeMessage)
+
+        // Update sent mailbox metric
+        val mailBoxPk = "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}"
+        val mailBoxSk = "${MAILBOX_INDEX}#${sentMailBox}"
+        this.mailRepository.updateMailBoxMetric(mailBoxPk, mailBoxSk, storeMessage.size, 1, 0)
+        return storeMessage
     }
 
     /**
@@ -87,7 +132,7 @@ class MailService {
             this.mailRepository.changeMailBoxStatus(mailBox, MailBoxSyncStatus.SYNCING)
         }
 
-        var totalSize = 0
+        var totalSize: Long = 0
         var messageProcessedCount = 0
         var lastSyncTime: Date? = null
         var mailBoxSyncStatus = MailBoxSyncStatus.SYNCING
@@ -103,7 +148,7 @@ class MailService {
                 // Convert message received from provider to email
                 val mailMessage = this.mailRepository.toEmail(mailAccount, message)
                 // Save the email information to database
-                this.mailRepository.storeEmailToDatabase(mailAccount, mailBox, mailMessage)
+                this.mailRepository.storeEmailToDatabase(mailAccount, mailBox.name, mailMessage)
                 // Send the new email notification to AppSync
                 this.mailRepository.notifyNewEmailReceived(mailAccount, mailBox, mailMessage, firstSync)
                 // Calculate the total size of new message received
@@ -130,7 +175,7 @@ class MailService {
             // Update the mailbox last mailbox sync time
             this.mailRepository.updateMailBoxLastSyncTime(mailBox, lastSyncTime)
             // Update the mailbox size, count, and unread count
-            this.mailRepository.updateMailBoxMetric(mailBox, totalSize, messageProcessedCount, messageProcessedCount)
+            this.mailRepository.updateMailBoxMetric(mailBox.pk, mailBox.sk, totalSize, messageProcessedCount, messageProcessedCount)
             // Change status of mailbox
             this.mailRepository.changeMailBoxStatus(mailBox, mailBoxSyncStatus)
         }
@@ -194,13 +239,11 @@ class MailService {
     }
 
     /**
-     * This method performs generate presigned url
-     *
-     * @params fileName The name of file that will be uploaded to s3
-     * @return PresignedUrlResponsePayload object
+     * Generate presigned url to put [fileName] with [contentType] to s3 bucket
+     * Return [PresignedUrlResponsePayload] object
      */
-    fun generatePresignedUrl(fileName: String): PresignedUrlResponsePayload = try {
-        mailRepository.generatePresignedUrl(fileName)
+    fun generatePresignedUrl(fileName: String, contentType: String): PresignedUrlResponsePayload = try {
+        mailRepository.generatePresignedUrl(fileName, contentType)
     } catch (e: Exception) {
         logger.error(e.toString())
         throw e
