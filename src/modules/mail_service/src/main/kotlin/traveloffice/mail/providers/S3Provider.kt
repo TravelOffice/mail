@@ -2,11 +2,8 @@ package traveloffice.mail.providers
 
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
-import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
-import com.amazonaws.services.s3.model.GetObjectRequest
-import com.amazonaws.services.s3.model.PutObjectRequest
-import com.amazonaws.services.s3.model.PutObjectResult
-import com.amazonaws.services.s3.model.S3Object
+import com.amazonaws.services.s3.model.*
+import traveloffice.mail.common.Constant
 import java.net.URL
 
 class S3Provider(region: String) {
@@ -40,10 +37,42 @@ class S3Provider(region: String) {
     fun getObject(getObjectRequest: GetObjectRequest): S3Object? = this.s3Client.getObject(getObjectRequest)
 
     /**
-     * This method performs to generate S3 presigned url
-     *
-     * @param generatePresignedUrlRequest The request object containing all the options on how to generate a presigned url
-     * @return The URL Object
+     * Generate Pre-signed url for [generatePresignedUrl] and return [URL] object
      */
     fun generatePresignedUrl(generatePresignedUrlRequest: GeneratePresignedUrlRequest): URL = this.s3Client.generatePresignedUrl(generatePresignedUrlRequest)
+
+    /**
+     * Copy object [copyObjectRequest] then return [CopyObjectResult] object
+     */
+    fun copyObject(copyObjectRequest: CopyObjectRequest): CopyObjectResult = this.s3Client.copyObject(copyObjectRequest)
+
+    /**
+     * Delete object with information in [deleteObjectRequest]
+     */
+    fun deleteObject(deleteObjectRequest: DeleteObjectRequest) = this.s3Client.deleteObject(deleteObjectRequest)
+
+    /**
+     * Move object [sourceKey] of [sourceBucket] to [destinationKey] of [destinationBucket] and set [mimeType], [encoding] for new object
+     */
+    fun moveObject(bucket: String, sourceKey: String, destinationKey: String, mimeType: String, encoding: String) {
+        val metadata = ObjectMetadata()
+        metadata.contentType = mimeType
+        metadata.contentEncoding = encoding
+        val copyObjectRequest = CopyObjectRequest()
+            .withSourceBucketName(bucket)
+            .withSourceKey(sourceKey)
+            .withDestinationBucketName(bucket)
+            .withDestinationKey(destinationKey)
+            .withNewObjectMetadata(metadata)
+        this.copyObject(copyObjectRequest)
+        val deleteObjectRequest = DeleteObjectRequest(bucket, sourceKey)
+//        this.deleteObject(deleteObjectRequest)
+    }
+
+    /**
+     * Get size of [objectKey] in [bucket]
+     */
+    fun getObjectSize(bucket: String, objectKey: String): Long {
+        return this.s3Client.getObjectMetadata(bucket, objectKey).contentLength
+    }
 }

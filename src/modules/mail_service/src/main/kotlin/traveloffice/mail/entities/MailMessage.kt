@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
 import com.google.gson.reflect.TypeToken
+import java.io.InputStream
 import java.lang.reflect.Type
 import javax.mail.Flags
 import javax.mail.internet.InternetAddress
@@ -36,6 +37,9 @@ class MailMessage : BaseModel() {
     @DynamoDBAttribute(attributeName = "htmlContent")
     lateinit var htmlContent: String
 
+    @DynamoDBIgnore
+    lateinit var htmlContentInputStream: InputStream
+
     @DynamoDBTypeConverted(converter = FlagTypeConverter::class)
     @DynamoDBAttribute(attributeName = "flags")
     var flags: Flags = Flags(Flags.Flag.RECENT)
@@ -66,7 +70,7 @@ class MailMessage : BaseModel() {
 
     @Expose
     @DynamoDBAttribute(attributeName = "size")
-    var size: Int = 0
+    var size: Long = 0
 
     val fromAsInternetAddress: InternetAddress
         @DynamoDBIgnore
@@ -81,6 +85,22 @@ class MailMessage : BaseModel() {
                 it.toInternetAddress()
             }
         }
+    val ccAsInternetAddresses: List<InternetAddress>
+        @DynamoDBIgnore
+        get() {
+            return this.cc?.map {
+                it.toInternetAddress()
+            } ?: emptyList()
+        }
+
+    val bccAsInternetAddresses: List<InternetAddress>
+        @DynamoDBIgnore
+        get() {
+            return this.bcc?.map {
+                it.toInternetAddress()
+            } ?: emptyList()
+        }
+
 
     fun clone(): MailMessage {
         val jsonString = Gson().toJson(this, MailMessage::class.java)

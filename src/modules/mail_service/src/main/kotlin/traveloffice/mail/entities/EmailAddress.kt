@@ -3,11 +3,14 @@ package traveloffice.mail.entities
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBDocument
 import com.google.gson.annotations.Expose
+import traveloffice.mail.common.Constant.Companion.INVALID_MESSAGE
 import javax.mail.internet.InternetAddress
+import javax.validation.constraints.Email
 
 @DynamoDBDocument
 class EmailAddress {
     @Expose
+    @Email(message = INVALID_MESSAGE)
     @DynamoDBAttribute(attributeName = "address")
     lateinit var address: String
 

@@ -24,11 +24,11 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-	implementation("com.amazonaws:aws-java-sdk-bom:1.12.300")
-	implementation("com.amazonaws:aws-java-sdk-dynamodb:1.12.300")
-	implementation("software.amazon.awssdk:regions:2.17.271")
-	implementation("software.amazon.awssdk:secretsmanager:2.17.271")
-	implementation("software.amazon.awssdk:sqs:2.17.271")
+	implementation("com.amazonaws:aws-java-sdk-bom:1.12.307")
+	implementation("com.amazonaws:aws-java-sdk-dynamodb:1.12.307")
+	implementation("software.amazon.awssdk:regions:2.17.276")
+	implementation("software.amazon.awssdk:secretsmanager:2.17.276")
+	implementation("software.amazon.awssdk:sqs:2.17.276")
 	implementation("com.google.code.gson:gson:2.9.1")
 	implementation("com.sun.mail:javax.mail:1.6.2")
 	implementation("org.jsoup:jsoup:1.15.3")
@@ -36,6 +36,7 @@ dependencies {
 	implementation("javax.xml.bind:jaxb-api:2.4.0-b180830.0359")
 	implementation("com.squareup.okhttp3:okhttp:4.10.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+	implementation("org.jsoup:jsoup:1.15.3")
 }
 
 tasks.withType<KotlinCompile> {
