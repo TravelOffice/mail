@@ -11,9 +11,11 @@ import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
+import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.exceptions.FunctionNotImplemented
 import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
+import traveloffice.mail.exceptions.MailBoxNotExisted
 import traveloffice.mail.repositories.MailRepository
 import java.util.*
 import javax.mail.Flags
@@ -167,7 +169,7 @@ class MailService {
             val (tenant, username) = authenticatedUser
             return mailRepository
                 .getMailBoxes(tenant, username, mail)
-                .map { it -> it.restrict() }
+                .map { it.restrict() }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
@@ -184,7 +186,7 @@ class MailService {
             val (tenant, username) = authenticatedUser
             return mailRepository
                 .getUserMailAccounts(tenant, username)
-                .map { it -> it.restrict() }
+                .map { it.restrict() }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
@@ -205,7 +207,7 @@ class MailService {
     }
 
     /**
-     * Get mail boxes for given [mail] [mailId] which related to [authenticatedUser]
+     * Get mail boxes for given [getMailParams] which related to [authenticatedUser]
      * The user [authenticatedUser] contains **tenant** and **username** values
      *
      * Returns list of thread mail messages information with exposed data
@@ -222,8 +224,7 @@ class MailService {
                 tenant, username, getMailParams,
                 Flags(Flags.Flag.RECENT), Flags(Flags.Flag.SEEN)
             )
-            return mailRepository.getThreadMails(tenant, username, getMailParams)
-                .map { it -> it.toJsonWithCDN(mailCDN) }
+            return mailRepository.getThreadMails(tenant, username, getMailParams).map { it.toJsonWithCDN(mailCDN) }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
@@ -235,14 +236,66 @@ class MailService {
      *
      * Returns [List] of [Map] with exposed data
      */
-    fun getMailsInsideMailBox(authenticatedUser: AuthenticatedUser, mail: String, mailbox: String, token: String?): Map<String, Any> {
+    fun getMailsInsideMailBox(
+        authenticatedUser: AuthenticatedUser,
+        mail: String,
+        mailbox: String,
+        token: String?
+    ): Map<String, Any> {
         try {
             val (tenant, username) = authenticatedUser
-            val (lastEvaluatedKey, emails) = mailRepository.getMailsInsideMailBox(tenant, username, mail, mailbox, token)
-            return mapOf<String, Any>(
-                "token" to lastEvaluatedKey,
-                "mails" to emails.map { it -> it.restrict() }
+            val (lastEvaluatedKey, emails) = mailRepository.getMailsInsideMailBox(
+                tenant,
+                username,
+                mail,
+                mailbox,
+                token
             )
+            return mapOf(
+                "token" to lastEvaluatedKey,
+                "mails" to emails.map { it.restrict() }
+            )
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
+    }
+
+    /**
+     * Change mailbox for given email with data [changeMailboxData] of user [authenticatedUser]
+     * Two types will be supported:
+     * - Change mailbox for individual message
+     * - Change mailbox for list of messages
+     */
+    @Throws(MailBoxNotExisted::class, Exception::class)
+    fun changeMailbox(authenticatedUser: AuthenticatedUser, changeMailboxData: ChangeMailboxRequestBody) {
+        try {
+            // Extract data
+            val (tenant, username) = authenticatedUser
+            val (from, to, mail, messages) = changeMailboxData
+
+            // Get mailboxes that belongs to user's mail
+            val mailboxes = mailRepository.getMailBoxes(tenant, username, mail)
+            val strMailBoxes = mailboxes.map { it.name.uppercase() }
+
+            // Check from, to mailboxes existed
+            if (!strMailBoxes.contains(from.uppercase()) || !strMailBoxes.contains(to.uppercase())) {
+                throw MailBoxNotExisted("Mailbox parameter $from or $to is not existed")
+            }
+
+            // Start moving between mailboxes
+            if (messages != null) {
+                if (messages.size == 1) {
+                    // Change mailbox for individual message
+                    val message = messages.first()
+                    mailRepository.changeMailboxOfMessage(tenant, username, from, to, mail, message)
+                } else {
+                    // Batch change mailbox for list of messages
+                    mailRepository.changeMailboxOfMessages(tenant, username, from, to, mail, messages)
+                }
+
+            }
+
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e

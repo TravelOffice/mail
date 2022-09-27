@@ -104,7 +104,7 @@ abstract class MailProvider {
         return store
     }
 
-    protected fun emailStoreDisconnect(store: Store) = store.close()
+    private fun emailStoreDisconnect(store: Store) = store.close()
 
     protected fun getMailBox(store: Store, mailBox: String, openMode: Int): Folder {
         //create the folder object and open it

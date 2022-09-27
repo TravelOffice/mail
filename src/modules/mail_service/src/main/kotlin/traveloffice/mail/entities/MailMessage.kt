@@ -83,8 +83,8 @@ class MailMessage : BaseModel() {
         }
 
     fun clone(): MailMessage {
-        val stringAnimal = Gson().toJson(this, MailMessage::class.java)
-        return Gson().fromJson(stringAnimal, MailMessage::class.java)
+        val jsonString = Gson().toJson(this, MailMessage::class.java)
+        return Gson().fromJson(jsonString, MailMessage::class.java)
     }
 
     private fun toJson(): Map<String, Any> {

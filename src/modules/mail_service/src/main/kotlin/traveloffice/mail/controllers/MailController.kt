@@ -14,6 +14,7 @@ import traveloffice.mail.common.Constant.Companion.ERROR_UNKNOWN
 import traveloffice.mail.common.Constant.Companion.ERROR_VALIDATOR
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.ResponseBody
+import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
 import traveloffice.mail.services.MailService
@@ -105,6 +106,19 @@ class MailController {
         )
     }
 
+    @PostMapping("/mails/change-mailbox")
+    fun changeMailbox(@Valid @RequestBody changeMailboxData: ChangeMailboxRequestBody): ResponseEntity<ResponseBody<Any>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Change mailbox for mails
+        mailService.changeMailbox(authenticatedUser, changeMailboxData)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = null, message = "Change mailbox successfully for given emails"
+            )
+        )
+    }
+
 
     @PostMapping("/sendEmail")
     fun sendEmail() {
@@ -112,11 +126,11 @@ class MailController {
     }
 
     /**
-     * API to get mail message for given [mail] [mailId]
+     * API to get mail message with [mailId] for given [email]
      *
      * Email param will be validated as email address format
      */
-    @GetMapping("/mails")
+    @GetMapping("/mails/{mailId}")
     fun getMailMessagesFromMailBox(
         @Valid
         @Email(message = Constant.INVALID_MESSAGE)
@@ -129,7 +143,7 @@ class MailController {
 
         @Valid
         @NotBlank(message = Constant.REQUIRED_MESSAGE)
-        @RequestParam("mailId")
+        @PathVariable("mailId")
         mailId: String,
     ): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
         // Get user that own Cognito token
