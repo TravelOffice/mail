@@ -4,6 +4,7 @@ import com.amazonaws.HttpMethod
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
+import com.amazonaws.services.dynamodbv2.datamodeling.KeyPair
 import com.amazonaws.services.dynamodbv2.document.ItemUtils
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import com.amazonaws.services.s3.model.GeneratePresignedUrlRequest
@@ -47,6 +48,7 @@ import java.util.*
 import javax.mail.Flags
 import javax.mail.Message
 import javax.mail.internet.InternetAddress
+
 
 @Repository
 @DependsOn(value = ["SecretManager"])
@@ -696,5 +698,79 @@ class MailRepository {
 
         val result = this.dynamoDBMapper.queryPage(MailMessage::class.java, queryExpression)
         return Pair(Gson().toJson(ItemUtils.toSimpleMapValue<Any>(result.lastEvaluatedKey)), result.results)
+    }
+
+    /**
+     * Change mailbox [from] to [to] for mail [message] of email [mail] that belongs to [tenant] [username]
+     */
+    fun changeMailboxOfMessage(
+        tenant: String,
+        username: String,
+        from: String,
+        to: String,
+        mail: String,
+        message: String
+    ) {
+        // Query mail message
+        val pkWithoutMailbox =
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#"
+        val pk = "$pkWithoutMailbox$from"
+        val sk = "${MESSAGE_INDEX}#$message"
+        val mailMessage = this.dynamoDBMapper.load(MailMessage::class.java, pk, sk)
+        val newMailMessage = mailMessage.clone()
+
+        // Delete old mail message
+        this.dynamoDBMapper.delete(mailMessage)
+
+        // Insert the new one
+        newMailMessage.pk = "$pkWithoutMailbox$to"
+        newMailMessage.lsi1 = newMailMessage.lsi1?.replace(from.uppercase(), to.uppercase())
+        this.dynamoDBMapper.save(newMailMessage)
+    }
+
+    /**
+     * Change mailbox [from] to [to] for mail [messages] of email [mail] that belongs to [tenant] [username]
+     * Do following steps:
+     * - Batch load message items
+     * - Batch delete message items from old partition belongs to old mailbox [from]
+     * - Batch write message items to new partition belongs to new mailbox [to]
+     */
+    fun changeMailboxOfMessages(
+        tenant: String,
+        username: String,
+        from: String,
+        to: String,
+        mail: String,
+        messages: List<String>
+    ) {
+        // Query mail messages
+        val pkWithoutMailbox =
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#"
+        val pk = "$pkWithoutMailbox$from"
+
+        // Use batch load to get MailMessage items
+        val keysList = messages.map {
+            val keyPair = KeyPair()
+            keyPair.hashKey = pk
+            keyPair.rangeKey = "${MESSAGE_INDEX}#$it"
+            return@map keyPair
+         }
+        val mailMessagesKeyPairTable = mutableMapOf<Class<*>, List<KeyPair>>(
+            MailMessage::class.java to keysList
+        )
+        val batchLoadMessagesResults = this.dynamoDBMapper.batchLoad(mailMessagesKeyPairTable)
+        val messagesToUpdate = batchLoadMessagesResults.values.first().toList()
+        val newMailMessages = messagesToUpdate.map {
+            val mailMessageObj = (it as MailMessage).clone()
+            mailMessageObj.pk = "$pkWithoutMailbox$to"
+            mailMessageObj.lsi1 = mailMessageObj.lsi1?.replace(from.uppercase(), to.uppercase())
+            return@map mailMessageObj
+        }
+
+        // Batch delete list of messages related to old partition key
+        this.dynamoDBMapper.batchDelete(messagesToUpdate)
+
+        // Batch write list of messages to new mailbox partition
+        this.dynamoDBMapper.batchSave(newMailMessages)
     }
 }
