@@ -40,9 +40,9 @@ class MailBox : BaseModel() {
     /**
      * Returns json object with only exposed values
      */
-    override fun restrict(): MutableMap<String, Any> {
+    override fun toJson(): MutableMap<String, Any> {
         // Get restricted json data
-        val json = super.restrict()
+        val json = super.toJson()
         // Additional values
         json["name"] = this.name
         return json

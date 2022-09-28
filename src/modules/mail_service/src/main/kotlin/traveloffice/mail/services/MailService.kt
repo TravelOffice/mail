@@ -12,6 +12,11 @@ import org.springframework.stereotype.Service
 import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DELETE
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DRAFT
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_INBOX
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SENT
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SPAM
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
@@ -78,12 +83,11 @@ class MailService {
         storeMessage.briefContent = doc.text().byteInputStream().subString(defaultBriefContentSize)
 
         // Store email to dynamo db
-        val sentMailBox = "SENT"
-        this.mailRepository.storeEmailToDatabase(mailAccount, sentMailBox, storeMessage)
+        this.mailRepository.storeEmailToDatabase(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
 
         // Update sent mailbox metric
         val mailBoxPk = "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}"
-        val mailBoxSk = "${MAILBOX_INDEX}#${sentMailBox}"
+        val mailBoxSk = "${MAILBOX_INDEX}#${DEFAULT_MAILBOX_SENT}"
         this.mailRepository.updateMailBoxMetric(mailBoxPk, mailBoxSk, storeMessage.size, 1, 0)
         return storeMessage
     }
@@ -214,7 +218,17 @@ class MailService {
             val (tenant, username) = authenticatedUser
             return mailRepository
                 .getMailBoxes(tenant, username, mail)
-                .map { it.restrict() }
+                .sortedWith(
+                    // Sort by following order INBOX > SENT > DRAFT > SPAM > DELETE > OTHERS
+                    compareBy(
+                        { it.name == DEFAULT_MAILBOX_DELETE },
+                        { it.name == DEFAULT_MAILBOX_SPAM },
+                        { it.name == DEFAULT_MAILBOX_DRAFT },
+                        { it.name == DEFAULT_MAILBOX_SENT },
+                        { it.name == DEFAULT_MAILBOX_INBOX }
+                    )
+                )
+                .map { it.toJson() }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
@@ -231,7 +245,7 @@ class MailService {
             val (tenant, username) = authenticatedUser
             return mailRepository
                 .getUserMailAccounts(tenant, username)
-                .map { it.restrict() }
+                .map { it.toJson() }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
@@ -296,7 +310,7 @@ class MailService {
             )
             return mapOf(
                 "token" to lastEvaluatedKey,
-                "mails" to emails.map { it.restrict() }
+                "mails" to emails.map { it.toJson() }
             )
         } catch (e: Exception) {
             logger.error(e.toString())

@@ -40,5 +40,10 @@ class Constant {
         const val ERROR_EMAIL_ADDRESS_IS_INVALID = "ERROR_EMAIL_ADDRESS_IS_INVALID"
         const val ERROR_DOWNLOAD_ATTACHMENT = "ERROR_DOWNLOAD_ATTACHMENT"
         const val ERROR_UNKNOWN = "ERROR_UNKNOWN"
+        const val DEFAULT_MAILBOX_INBOX = "INBOX"
+        const val DEFAULT_MAILBOX_SENT = "SENT"
+        const val DEFAULT_MAILBOX_DRAFT = "DRAFT"
+        const val DEFAULT_MAILBOX_SPAM = "SPAM"
+        const val DEFAULT_MAILBOX_DELETE = "DELETE"
     }
 }

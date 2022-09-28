@@ -66,7 +66,7 @@ class S3Provider(region: String) {
             .withNewObjectMetadata(metadata)
         this.copyObject(copyObjectRequest)
         val deleteObjectRequest = DeleteObjectRequest(bucket, sourceKey)
-//        this.deleteObject(deleteObjectRequest)
+        this.deleteObject(deleteObjectRequest)
     }
 
     /**

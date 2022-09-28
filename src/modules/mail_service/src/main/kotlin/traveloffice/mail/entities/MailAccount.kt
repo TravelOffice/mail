@@ -114,8 +114,8 @@ class MailAccount : BaseModel() {
     /**
      * Returns json object with only exposed values
      */
-    override fun restrict(): MutableMap<String, Any> {
+    override fun toJson(): MutableMap<String, Any> {
         // Get restricted json data
-        return super.restrict()
+        return super.toJson()
     }
 }
