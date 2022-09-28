@@ -38,7 +38,7 @@ open class BaseModel {
     @DynamoDBAttribute(attributeName = "updatedAt")
     var updatedAt: Long = Date().time
 
-    open fun restrict(): MutableMap<String, Any> {
+    open fun toJson(): MutableMap<String, Any> {
         val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
         return gson
             .fromJson<Map<String, Any>>(gson.toJson(this), MutableMap::class.java)

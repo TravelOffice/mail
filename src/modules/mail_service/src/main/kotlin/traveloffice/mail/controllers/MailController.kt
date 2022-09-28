@@ -45,7 +45,7 @@ class MailController {
         mailService.linkEmail(mailAccount, authenticatedUser)
         return ResponseEntity.ok(
             ResponseBody(
-                code = "SUCCESS", data = mailAccount.restrict(), message = "Link successfully"
+                code = "SUCCESS", data = mailAccount.toJson(), message = "Link successfully"
             )
         )
     }
@@ -127,7 +127,7 @@ class MailController {
         val mailMessage = mailService.sendEmail(authenticatedUser, sendMailRequestPayload)
         return ResponseEntity.ok(
             ResponseBody(
-                code = "SUCCESS", data = mailMessage.restrict(), message = "Send email successfully"
+                code = "SUCCESS", data = mailMessage.toJson(), message = "Send email successfully"
             )
         )
     }

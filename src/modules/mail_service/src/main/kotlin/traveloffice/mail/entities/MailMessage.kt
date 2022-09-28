@@ -107,10 +107,13 @@ class MailMessage : BaseModel() {
         return Gson().fromJson(jsonString, MailMessage::class.java)
     }
 
-    private fun toJson(): Map<String, Any> {
-        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
-        val mapType: Type = object : TypeToken<Map<String, Any>?>() {}.type
-        val json = gson.fromJson<Map<String, Any>>(gson.toJson(this), mapType).toMutableMap()
+    /**
+     * Returns json object with only exposed values
+     */
+    override fun toJson(): MutableMap<String, Any> {
+        // Get restricted json data
+        val json = super.toJson()
+        // Additional values
         json["flags"] = this.flags.toString()
         return json
     }
