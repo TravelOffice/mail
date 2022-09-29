@@ -308,9 +308,11 @@ class MailService {
                 mailbox,
                 token
             )
+
+            val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
             return mapOf(
                 "token" to lastEvaluatedKey,
-                "mails" to emails.map { it.toJson() }
+                "mails" to emails.map { it.toJsonWithCDN(mailCDN) }
             )
         } catch (e: Exception) {
             logger.error(e.toString())
