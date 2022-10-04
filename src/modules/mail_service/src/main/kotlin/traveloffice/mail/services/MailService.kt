@@ -59,7 +59,7 @@ class MailService {
             tenant,
             username,
             emailAddress
-        ) ?: throw MailAccountNotExistException("Mail account [$emailAddress] doesn't exist")
+        ) ?: throw MailAccountNotExistException("Tenant [${tenant}], User [${username}], Mail account [$emailAddress] doesn't exist")
 
         // Download Html content from S3 Pre-signed url
         sendingMessage.htmlContentInputStream = this.mailRepository.getObjectFromS3(sendingMessage.htmlContent)
@@ -71,24 +71,28 @@ class MailService {
         }
 
         // Send email
-        this.mailRepository.sendEmail(mailAccount, sendingMessage)
-
-        // Copy Html content and attachments to mail folder on s3
         storeMessage.messageId = UUID.randomUUID().toString()
-        this.mailRepository.storeSentEmailToS3(tenant, username, storeMessage)
+        this.mailRepository.sendEmail(mailAccount, sendingMessage)
+        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Send email successfully")
 
         // Parse brief content from html content
         val doc = Jsoup.parse(this.mailRepository.getObjectFromS3(sendingMessage.htmlContent), "UTF-8", storeMessage.htmlContent)
         val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
         storeMessage.briefContent = doc.text().byteInputStream().subString(defaultBriefContentSize)
 
+        // Copy Html content and attachments to mail folder on s3
+        this.mailRepository.storeSentEmailToS3(tenant, username, storeMessage)
+        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent message to s3 successfully")
+
         // Store email to dynamo db
         this.mailRepository.storeEmailToDatabase(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
+        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent email to database successfully")
 
         // Update sent mailbox metric
         val mailBoxPk = "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}"
         val mailBoxSk = "${MAILBOX_INDEX}#${DEFAULT_MAILBOX_SENT}"
         this.mailRepository.updateMailBoxMetric(mailBoxPk, mailBoxSk, storeMessage.size, 1, 0)
+        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Update SENT mail box metric successfully")
         return storeMessage
     }
 

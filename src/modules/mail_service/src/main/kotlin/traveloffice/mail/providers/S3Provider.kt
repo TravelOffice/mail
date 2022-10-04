@@ -52,7 +52,7 @@ class S3Provider(region: String) {
     fun deleteObject(deleteObjectRequest: DeleteObjectRequest) = this.s3Client.deleteObject(deleteObjectRequest)
 
     /**
-     * Move object [sourceKey] of [sourceBucket] to [destinationKey] of [destinationBucket] and set [mimeType], [encoding] for new object
+     * Move object [sourceKey] of [bucket] to [destinationKey] of [bucket] and set [mimeType], [encoding] for new object
      */
     fun moveObject(bucket: String, sourceKey: String, destinationKey: String, mimeType: String, encoding: String) {
         val metadata = ObjectMetadata()

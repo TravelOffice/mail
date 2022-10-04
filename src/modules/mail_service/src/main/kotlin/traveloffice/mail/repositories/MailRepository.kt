@@ -682,6 +682,7 @@ class MailRepository {
             it.path = "${mailCdn}/${attachmentObjectKey.encodeToURL()}"
             mailMessage.size += this.s3Provider.getObjectSize(mailBucket, attachmentObjectKey)
         }
+        logger.info("Store sent email to s3 successfully")
     }
 
     /**

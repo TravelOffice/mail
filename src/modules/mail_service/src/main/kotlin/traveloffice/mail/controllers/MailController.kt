@@ -190,6 +190,7 @@ class MailController {
     fun handleValidationException(
         ex: ConstraintViolationException
     ): ResponseEntity<ResponseBody<Any>> {
+        ex.printStackTrace()
         return ResponseEntity.ok(ResponseBody(code = ERROR_VALIDATOR, message = ex.message.toString()))
     }
 
@@ -197,6 +198,7 @@ class MailController {
     fun handleResponseException(
         ex: ResponseException
     ): ResponseEntity<ResponseBody<Any>> {
+        ex.printStackTrace()
         return ResponseEntity.ok(ResponseBody(code = ex.code, message = ex.message))
     }
 
@@ -204,6 +206,7 @@ class MailController {
     fun handleResponseException(
         ex: Exception
     ): ResponseEntity<ResponseBody<Any>> {
+        ex.printStackTrace()
         return ResponseEntity.ok(ResponseBody(code = ERROR_UNKNOWN, message = ex.message.toString()))
     }
 }

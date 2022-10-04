@@ -82,7 +82,6 @@ class SMTPProvider {
             message.setContent(multipart)
             // Send mail
             Transport.send(message)
-            logger.info("Send email successfully")
         } catch (e: MailConnectException) {
             throw ResponseException(e.message.toString(), ERROR_CONNECT_TO_OUTBOUND_SERVER)
         } catch (e: AuthenticationFailedException) {
