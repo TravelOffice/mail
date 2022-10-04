@@ -29,4 +29,12 @@ class DynamoDBConfig {
         ).build()
         return DynamoDBMapper(client, mapperConfig)
     }
+
+    @Bean("DynamoDBClient")
+    @DependsOn("SecretManager")
+    fun getDynamoDBClient(): AmazonDynamoDB {
+        return AmazonDynamoDBClientBuilder.standard().also {
+            it.region = this.secretManagerService.getEnv("AWS_REGION")
+        }.build()
+    }
 }

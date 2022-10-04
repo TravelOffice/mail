@@ -11,7 +11,9 @@ import traveloffice.mail.common.Constant.Companion.DEFAULT_MAIL_TIMEOUT
 import traveloffice.mail.common.Constant.Companion.ERROR_CONNECT_TO_INBOUND_SERVER
 import traveloffice.mail.common.Constant.Companion.ERROR_LOGIN_TO_INBOUND_SERVER
 import traveloffice.mail.entities.MailAccount
+import traveloffice.mail.entities.MailMessage
 import traveloffice.mail.exceptions.ResponseException
+import traveloffice.mail.exceptions.UnSupportedProvider
 import java.io.InputStream
 import java.util.*
 import javax.mail.*
@@ -42,16 +44,31 @@ abstract class MailProvider {
     }
 
     /**
+     * This method perform to fetch all message from the provider
+     *
+     * @param mailAccount: The mail account information.
+     * @param mailBox: The mailbox which use to fetch message from
+     * @return The list of matching messages
+     * @exception
+     */
+    abstract fun getMessages(mailAccount: MailAccount, mailBox: String, limit: Long? = null): List<MailMessage>
+
+    /**
      * This method perform to fetch the message from the start time to the end time
      *
      * @param mailAccount: The mail account information.
      * @param mailBox: The mailbox which use to fetch message from
-     * @param startDate: The start date
-     * @param endDate: The end date
+     * @param syncedMessagesUID: The list of last synced UID message
      * @return The list of messages.
      * @exception
      */
-    abstract fun getMessages(mailAccount: MailAccount, mailBox: String, startDate: Date, endDate: Date?): List<Message>
+    abstract fun getMessages(
+        mailAccount: MailAccount,
+        mailBox: String,
+        syncedMessagesUID: List<String>,
+        syncedMessagesFailedUID: List<String>,
+        lastSyncTime: Long?
+    ): List<MailMessage>
 
     /**
      * This method perform to get the mime input stream from the message
@@ -83,20 +100,7 @@ abstract class MailProvider {
      */
     abstract fun getInRelyTo(message: Message): String?
 
-    /**
-     * This method perform to fetch all message from the provider
-     *
-     * @param mailAccount: The mail account information.
-     * @param mailBox: The mailbox which use to fetch message from
-     * @return The list of matching messages
-     * @exception
-     */
-    fun getMessages(mailAccount: MailAccount, mailBox: String): List<Message> {
-        val properties = this.getProperty(mailAccount)
-        return this.getMessagesFromMailBox(properties, mailBox, mailAccount)
-    }
-
-    protected fun emailStoreConnect(properties: Properties, mailAccount: MailAccount): Store {
+    private fun emailStoreConnect(properties: Properties, mailAccount: MailAccount): Store {
         val emailSession = Session.getDefaultInstance(properties)
         // Create the IMAP/POP3 store object and connect with the pop server
         val store = emailSession.getStore(mailAccount.inboundType)
@@ -106,7 +110,7 @@ abstract class MailProvider {
 
     private fun emailStoreDisconnect(store: Store) = store.close()
 
-    protected fun getMailBox(store: Store, mailBox: String, openMode: Int): Folder {
+    private fun getMailBox(store: Store, mailBox: String, openMode: Int): Folder {
         //create the folder object and open it
         val emailFolder: Folder = store.getFolder(mailBox)
         emailFolder.open(openMode)
@@ -115,16 +119,18 @@ abstract class MailProvider {
 
     protected fun closeMailBox(folder: Folder) = folder.close()
 
-    private fun getMessagesFromMailBox(
-        properties: Properties,
-        mailBox: String,
-        mailAccount: MailAccount
+    protected fun getMessagesFromMailBox(
+        properties: Properties, mailBox: String, mailAccount: MailAccount
     ): List<Message> {
         val store = this.emailStoreConnect(properties, mailAccount)
         val emailFolder = this.getMailBox(store, mailBox, Folder.READ_ONLY)
 
-        return emailFolder.messages.toList()
-        // Keep the mail store connecting to do something with the message
+        // Fetch only UID for filter message
+        val fp = FetchProfile()
+        fp.add(UIDFolder.FetchProfileItem.UID)
+        val messages = emailFolder.messages
+        emailFolder.fetch(messages, fp)
+        return messages.toList()
     }
 
     /**
@@ -138,7 +144,9 @@ abstract class MailProvider {
     fun parseMessage(message: Message): Email {
         val contentHandler = CustomContentHandler()
 
-        val mime4jParserConfig = MimeConfig.DEFAULT
+        val mime4jParserConfig = MimeConfig.Builder()
+            .setMaxHeaderLen(100000)
+            .build()
         val bodyDescriptorBuilder = DefaultBodyDescriptorBuilder()
         val mime4jParser = MimeStreamParser(mime4jParserConfig, DecodeMonitor.SILENT, bodyDescriptorBuilder)
         mime4jParser.isContentDecoding = true
@@ -162,6 +170,8 @@ abstract class MailProvider {
             // Create the IMAP/POP3 store object and connect with the pop server
             val store = emailSession.getStore(mailAccount.inboundType)
             store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
+            if (!this.isSupportUIDL(store))
+                throw UnSupportedProvider("Provider not supported UIDL")
             this.emailStoreDisconnect(store)
         } catch (e: AuthenticationFailedException) {
             throw ResponseException("Failed to login to inbound server", ERROR_LOGIN_TO_INBOUND_SERVER)
@@ -169,4 +179,11 @@ abstract class MailProvider {
             throw ResponseException(e.message.toString(), ERROR_CONNECT_TO_INBOUND_SERVER)
         }
     }
+
+    /**
+     * This method perform to validate whether the provider supported UIDL or not
+     * @param store The mail store information
+     * @return true if supported and otherwise false
+     */
+    protected abstract fun isSupportUIDL(store: Store): Boolean
 }

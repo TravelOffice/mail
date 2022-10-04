@@ -10,6 +10,7 @@ locals {
       AWS_REGION                                             = var.AWS_REGION
       SECRET_MANAGER_ID                                      = module.REMOTE_STATE.STATE.MARKETING.backend.secret_manager.id
       "spring.security.oauth2.resourceserver.jwt.issuer-uri" = "https://cognito-idp.${var.AWS_REGION}.amazonaws.com/${module.REMOTE_STATE.STATE.COMMON_CONFIG.cognito.user_pool.id}"
+      MAX_MESSAGE_BRIEF_CONTENT_SIZE                         = "200"
     }
   }
 
@@ -58,7 +59,6 @@ module "ECS" {
     local.env_vars.standard_vars,
     {
       MAIL_SERVICE_QUEUE_NAME           = module.MAIL_QUEUE.mail_queue_url
-      MAX_MESSAGE_BRIEF_CONTENT_SIZE    = "200"
       MAIL_MAX_MESSAGE_PER_SERVICE_TASK = tostring(local.MESSAGE_PER_TASK)
     }
   )

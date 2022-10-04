@@ -16,21 +16,16 @@ class MailBox : BaseModel() {
 
     @Expose
     @DynamoDBAttribute(attributeName = "count")
-    var count: Int? = null
+    var count: Int = 0
 
     @Expose
     @DynamoDBAttribute(attributeName = "unread")
-    var unread: Int? = null
+    var unread: Int = 0
 
     @Expose
     @DynamoDBAttribute(attributeName = "size")
-    var size: Long? = null
+    var size: Long = 0
 
-    @Expose
-    @DynamoDBAttribute(attributeName = "lastMailboxSync")
-    var lastMailboxSync: Long? = null
-
-    @Expose
     @DynamoDBAttribute(attributeName = "syncStatus")
     var syncStatus: String? = null
 
@@ -48,3 +43,4 @@ class MailBox : BaseModel() {
         return json
     }
 }
+

@@ -1,49 +1,63 @@
 package traveloffice.mail.providers
 
+import com.sun.mail.imap.IMAPFolder
 import com.sun.mail.imap.IMAPMessage
-import com.sun.mail.pop3.POP3Message
 import traveloffice.mail.entities.MailAccount
+import traveloffice.mail.entities.MailMessage
 import java.io.InputStream
-import java.util.*
-import javax.mail.Folder
 import javax.mail.Message
-import javax.mail.search.AndTerm
-import javax.mail.search.ComparisonTerm
-import javax.mail.search.ReceivedDateTerm
-import javax.mail.search.SearchTerm
+import javax.mail.Store
 
 class IMAPProvider : MailProvider() {
+
+    /**
+     * This method perform to fetch all message from the provider
+     *
+     * @param mailAccount: The mail account information.
+     * @param mailBox: The mailbox which use to fetch message from
+     * @return The list of matching messages
+     * @exception
+     */
+    @Override
+    override fun getMessages(mailAccount: MailAccount, mailBox: String, limit: Long?): List<MailMessage> {
+        val properties = this.getProperty(mailAccount)
+        val rawMessages = this.getMessagesFromMailBox(properties, mailBox, mailAccount)
+        val folder = rawMessages.first().folder as IMAPFolder
+        val messages = rawMessages.map {
+            val message = MailMessage()
+            message.uid = folder.getUID(it).toString()
+            message.raw = it
+            return@map message
+        }
+        if (limit != null) {
+            return messages.stream().limit(limit).toList()
+        }
+        return messages
+    }
 
     /**
      * This method perform to fetch the message from the start time to the end time
      *
      * @param mailAccount: The mail account information.
      * @param mailBox: The mailbox which use to fetch message from
-     * @param startDate: The start date
-     * @param endDate: The end date
+     * @param syncedMessagesUID: All UIDs of synced messages
+     * @param syncedMessagesFailedUID: All UIDs of sync failed messages
      * @return The list of matching messages
      * @exception
      */
     @Override
-    override fun getMessages(mailAccount: MailAccount, mailBox: String, startDate: Date, endDate: Date?): List<Message> {
-        val properties = this.getProperty(mailAccount)
-        val store = this.emailStoreConnect(properties, mailAccount)
-        val emailFolder = this.getMailBox(store, mailBox, Folder.READ_ONLY)
-        var term: SearchTerm?
-        val maxDate = endDate ?: Date()
-        val minDateTerm = ReceivedDateTerm(ComparisonTerm.GE, startDate)
-        val maxDateTerm = ReceivedDateTerm(ComparisonTerm.LE, maxDate)
-        term = minDateTerm
-        term = AndTerm(term, maxDateTerm)
-
-        val messages = emailFolder.search(term).toList()
-        // Due to the GT start date return wrong message, so compare the receivedDate to return exact message
-        var count = 0
-        for (message in messages) {
-            if (message.receivedDate.after(startDate)) break
-            count++
-        }
-        return messages.slice(count until messages.size).toList()
+    override fun getMessages(
+        mailAccount: MailAccount,
+        mailBox: String,
+        syncedMessagesUID: List<String>,
+        syncedMessagesFailedUID: List<String>,
+        lastSyncTime: Long?
+    ): List<MailMessage> {
+        val allMessages = this.getMessages(mailAccount, mailBox)
+        val lastSyncedUID = syncedMessagesUID.first().toLong()
+        val retryMessages = allMessages.filter { syncedMessagesFailedUID.contains(it.uid!!) }.toMutableList()
+        retryMessages.addAll(allMessages.filter { it.uid!!.toLong() > lastSyncedUID })
+        return retryMessages
     }
 
     /**
@@ -78,4 +92,12 @@ class IMAPProvider : MailProvider() {
      */
     @Override
     override fun getInRelyTo(message: Message): String? = (message as IMAPMessage).inReplyTo
+
+    /**
+     * This method perform to validate whether the provider supported UIDL or not
+     * @param store The mail store information
+     * @return true if supported and otherwise false
+     */
+    @Override
+    override fun isSupportUIDL(store: Store): Boolean = true
 }

@@ -1,6 +1,5 @@
 package traveloffice.mail.extensions
 
-import java.io.InputStream
 import java.net.URLEncoder
 import java.security.Key
 import java.util.*

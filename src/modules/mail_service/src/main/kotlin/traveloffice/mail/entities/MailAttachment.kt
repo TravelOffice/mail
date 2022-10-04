@@ -30,5 +30,43 @@ class MailAttachment {
     var encoding: String = DEFAULT_ENCODING
 
     @DynamoDBIgnore
-    lateinit var inputStream: InputStream
+    var inputStream: InputStream? = null
+
+    class Builder {
+        private var mailAttachment = MailAttachment()
+
+        fun withName(name: String): Builder {
+            this.mailAttachment.name = name
+            return this
+        }
+
+        fun withMimeType(mimeType: String): Builder {
+            this.mailAttachment.mimeType = mimeType
+            return this
+        }
+
+        fun withEncoding(encoding: String): Builder {
+            this.mailAttachment.encoding = encoding
+            return this
+        }
+
+        fun withPath(path: String): Builder {
+            this.mailAttachment.path = path
+            return this
+        }
+
+        fun withSize(size: Long): Builder {
+            this.mailAttachment.size = size
+            return this
+        }
+
+        fun withInputStream(inputStream: InputStream): Builder {
+            this.mailAttachment.inputStream = inputStream
+            return this
+        }
+
+        fun build(): MailAttachment {
+            return mailAttachment
+        }
+    }
 }

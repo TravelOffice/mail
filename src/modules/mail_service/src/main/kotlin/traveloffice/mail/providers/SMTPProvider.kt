@@ -9,9 +9,9 @@ import traveloffice.mail.common.Constant.Companion.ERROR_CONNECT_TO_OUTBOUND_SER
 import traveloffice.mail.common.Constant.Companion.ERROR_EMAIL_ADDRESS_IS_INVALID
 import traveloffice.mail.common.Constant.Companion.ERROR_LOGIN_TO_OUTBOUND_SERVER
 import traveloffice.mail.entities.MailAccount
+import traveloffice.mail.entities.MailAttachment
 import traveloffice.mail.entities.MailMessage
 import traveloffice.mail.exceptions.ResponseException
-import java.io.InputStream
 import java.util.*
 import javax.activation.DataHandler
 import javax.activation.DataSource
@@ -74,10 +74,12 @@ class SMTPProvider {
             message.subject = mailMessage.subject
             // Add message content
             val multipart: Multipart = MimeMultipart()
-            this.addBodyPart(multipart, mailMessage.htmlContentInputStream, "text/html; charset=utf-8")
+            if (mailMessage.rawHtmlContent != null) {
+                this.addHtmlBodyPart(multipart, mailMessage.rawHtmlContent!!)
+            }
             // Add message attachment
             mailMessage.attachments?.forEach {
-                this.addBodyPart(multipart, it.inputStream, it.mimeType, it.name)
+                this.addAttachmentBodyPart(multipart, it)
             }
             message.setContent(multipart)
             // Send mail
@@ -93,11 +95,18 @@ class SMTPProvider {
         }
     }
 
-    private fun addBodyPart(multipart: Multipart, inputStream: InputStream, mimeType: String, fileName: String = "") {
+    private fun addAttachmentBodyPart(multipart: Multipart, attachment: MailAttachment) {
         val messageBodyPart: BodyPart = MimeBodyPart()
-        val dataSrc: DataSource = ByteArrayDataSource(inputStream.readAllBytes(), mimeType)
+        val dataSrc: DataSource = ByteArrayDataSource(attachment.inputStream!!.readAllBytes(), attachment.mimeType)
         messageBodyPart.dataHandler = DataHandler(dataSrc)
-        messageBodyPart.fileName = fileName
+        messageBodyPart.fileName = attachment.name
+        multipart.addBodyPart(messageBodyPart)
+    }
+
+    private fun addHtmlBodyPart(multipart: Multipart, attachment: MailAttachment) {
+        val messageBodyPart: BodyPart = MimeBodyPart()
+        val dataSrc: DataSource = ByteArrayDataSource(attachment.inputStream!!.readAllBytes(), attachment.mimeType)
+        messageBodyPart.dataHandler = DataHandler(dataSrc)
         multipart.addBodyPart(messageBodyPart)
     }
 }

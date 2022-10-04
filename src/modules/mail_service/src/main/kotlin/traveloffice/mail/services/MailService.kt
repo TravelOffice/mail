@@ -1,22 +1,27 @@
 package traveloffice.mail.services
 
 import com.amazonaws.services.kms.model.NotFoundException
+import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.withLock
-import org.jsoup.Jsoup
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
 import traveloffice.mail.common.Constant
-import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
-import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DELETE
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DRAFT
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_INBOX
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SENT
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SPAM
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAX_THREAD_POOL
+import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
+import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
@@ -27,10 +32,8 @@ import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailAccountNotExistException
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.exceptions.MailBoxNotExisted
-import traveloffice.mail.extensions.subString
 import traveloffice.mail.repositories.MailRepository
 import java.util.*
-import javax.mail.Flags
 
 @Service
 @DependsOn("DynamoDBMapper")
@@ -48,9 +51,9 @@ class MailService {
      * Return [MailMessage] object
      */
     fun sendEmail(authenticatedUser: AuthenticatedUser, sendMailRequestPayload: SendMailRequestPayload): MailMessage {
-        val gson = GsonBuilder().create()
-        val storeMessage = gson.fromJson(gson.toJson(sendMailRequestPayload), MailMessage::class.java)
-        val sendingMessage = gson.fromJson(gson.toJson(sendMailRequestPayload), MailMessage::class.java)
+        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
+        val storeMessage = gson.fromJson(Gson().toJson(sendMailRequestPayload), MailMessage::class.java)
+        val sendingMessage = storeMessage.clone()
 
         // Check mail account exist or not
         val emailAddress = sendingMessage.fromAsInternetAddress.address
@@ -59,10 +62,15 @@ class MailService {
             tenant,
             username,
             emailAddress
-        ) ?: throw MailAccountNotExistException("Tenant [${tenant}], User [${username}], Mail account [$emailAddress] doesn't exist")
+        )
+            ?: throw MailAccountNotExistException("Tenant [${tenant}], User [${username}], Mail account [$emailAddress] doesn't exist")
 
         // Download Html content from S3 Pre-signed url
-        sendingMessage.htmlContentInputStream = this.mailRepository.getObjectFromS3(sendingMessage.htmlContent)
+        sendingMessage.rawHtmlContent = MailAttachment.Builder()
+            .withName("index.html")
+            .withMimeType("text/html; charset=utf-8")
+            .withInputStream(this.mailRepository.getObjectFromS3(sendingMessage.htmlContent))
+            .build()
         // Download attachments from s3 bucket
         if (sendingMessage.attachments != null) {
             sendingMessage.attachments?.forEach {
@@ -75,23 +83,21 @@ class MailService {
         this.mailRepository.sendEmail(mailAccount, sendingMessage)
         logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Send email successfully")
 
-        // Parse brief content from html content
-        val doc = Jsoup.parse(this.mailRepository.getObjectFromS3(sendingMessage.htmlContent), "UTF-8", storeMessage.htmlContent)
-        val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
-        storeMessage.briefContent = doc.text().byteInputStream().subString(defaultBriefContentSize)
+        storeMessage.sentDate = Date().time
 
         // Copy Html content and attachments to mail folder on s3
         this.mailRepository.storeSentEmailToS3(tenant, username, storeMessage)
         logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent message to s3 successfully")
 
         // Store email to dynamo db
-        this.mailRepository.storeEmailToDatabase(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
+        this.mailRepository.saveEmail(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
         logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent email to database successfully")
 
         // Update sent mailbox metric
-        val mailBoxPk = "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}"
+        val mailBoxPk =
+            "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}"
         val mailBoxSk = "${MAILBOX_INDEX}#${DEFAULT_MAILBOX_SENT}"
-        this.mailRepository.updateMailBoxMetric(mailBoxPk, mailBoxSk, storeMessage.size, 1, 0)
+        this.mailRepository.updateMailBoxMetric(mailBoxPk, mailBoxSk, storeMessage.size, 1)
         logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Update SENT mail box metric successfully")
         return storeMessage
     }
@@ -115,6 +121,7 @@ class MailService {
      * @return
      * @exception MailBoxIsStillSyncing Raise exception when MailBox currently is syncing the message
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Throws(MailBoxIsStillSyncing::class, Exception::class)
     suspend fun syncEmail(data: MailMessageQueueData) {
         val (tenant, username, _, arguments) = data
@@ -140,54 +147,125 @@ class MailService {
             this.mailRepository.changeMailBoxStatus(mailBox, MailBoxSyncStatus.SYNCING)
         }
 
-        var totalSize: Long = 0
-        var messageProcessedCount = 0
-        var lastSyncTime: Date? = null
         var mailBoxSyncStatus = MailBoxSyncStatus.SYNCING
-        val firstSync = mailBox.lastMailboxSync == null
-
-        // Try to sync new email from the last sync time
+        var firstSync = false
         try {
-            val messages = this.mailRepository.getLastMailBoxSync(mailAccount, mailBox)
-            logger.info("${mailAccount.inboundType.uppercase()} [$mailBox] found ${messages.size} new message")
+            val lastSyncInfo = this.mailRepository.getSyncInfo(mailAccount, mailBox.name, false)
+            if (lastSyncInfo.isEmpty()) firstSync = true
+            val messages = this.mailRepository.getNewEmailFromLastSync(mailAccount, mailBox, lastSyncInfo)
+            if (messages.isEmpty()) {
+                logger.info(
+                    "${mailAccount.inboundType.uppercase()} [${mailBox.name}] Not found any new message " +
+                            "from Tenant [${mailAccount.tenant}] User [${mailAccount.username}] " +
+                            "Mail Account [${mailAccount.email}] "
+                )
+                // Mark the sync status to SYNC successfully
+                mailBoxSyncStatus = MailBoxSyncStatus.SYNCED
+                return
+            }
 
-            // Save Email to DynamoDB and S3
-            for (message in messages) {
-                // Convert message received from provider to email
-                val mailMessage = this.mailRepository.toEmail(mailAccount, message)
-                // Save the email information to database
-                this.mailRepository.storeEmailToDatabase(mailAccount, mailBox.name, mailMessage)
-                // Send the new email notification to AppSync
-                this.mailRepository.notifyNewEmailReceived(mailAccount, mailBox, mailMessage, firstSync)
-                // Calculate the total size of new message received
-                totalSize += mailMessage.size
-                messageProcessedCount = messageProcessedCount.inc()
-                (message.receivedDate ?: message.sentDate)?.let {
-                    lastSyncTime = it
+            logger.info(
+                "${mailAccount.inboundType.uppercase()} [${mailBox.name}] found ${messages.size} new message " +
+                        "from Tenant [${mailAccount.tenant}] User [${mailAccount.username}] " +
+                        "Mail Account [${mailAccount.email}] "
+            )
+            val parsedResult = Collections.synchronizedList(mutableListOf<MailMessageSyncStatus>())
+
+            runBlocking {
+                messages.map { message ->
+                    launch(Dispatchers.IO.limitedParallelism(DEFAULT_MAX_THREAD_POOL)) {
+                        val syncStatus = MailMessageSyncStatus()
+                        syncStatus.uid = message.uid!!
+                        syncStatus.messageNumber = message.raw!!.messageNumber
+                        try {
+                            mailRepository.parseMailMessage(mailAccount, message)
+                            // Save the emails information to database
+                            mailRepository.saveEmail(mailAccount, mailBox.name, message)
+                            syncStatus.size = message.size
+                            syncStatus.syncTime = message.sentDate
+                            if (!firstSync)
+                                syncStatus.message = message
+                        } catch (e: Exception) {
+                            syncStatus.failed = true
+                            syncStatus.errorMessage = e.message
+                            logger.info(
+                                "Parse failed [${syncStatus.messageNumber}][${message.uid}] " +
+                                        "from Tenant [${mailAccount.tenant}] User [${mailAccount.username}] " +
+                                        "Mail Account [${mailAccount.email}] " +
+                                        "with error: ${e.message}"
+                            )
+                            e.printStackTrace()
+                        } finally {
+                            parsedResult.add(syncStatus)
+                        }
+                    }
                 }
             }
+
+            // Sort the result to get the highest message number first
+            parsedResult.sortByDescending { it.messageNumber }
+            val parsedSuccessResult = parsedResult.filter { !it.failed }
+            val parsedFailedResult: List<MailMessageSyncStatus>
+            val mailMessages = if (firstSync) {
+                // For the first sync only send to client the number of message synced
+                emptyList()
+            } else {
+                parsedSuccessResult.map { it.message!! }
+            }
+
+            if (parsedSuccessResult.isNotEmpty()) {
+                logger.info(
+                    "${mailAccount.inboundType.uppercase()} [${mailBox.name}] parse successfully ${parsedSuccessResult.size} message " +
+                            "from Tenant [${mailAccount.tenant}] User [${mailAccount.username}] " +
+                            "Mail Account [${mailAccount.email}] "
+                )
+                val lastSuccessMessageNumber = parsedSuccessResult.first().messageNumber
+                parsedFailedResult = parsedResult.filter { it.failed && it.messageNumber < lastSuccessMessageNumber }
+                var totalSize = 0L
+                val messageProcessedCount = parsedSuccessResult.size
+
+                // Calculate the total size
+                parsedSuccessResult.forEach { totalSize += it.size }
+                // Update the mailbox size, count, and unread count
+                this.mailRepository.updateMailBoxMetric(
+                    mailBox.pk,
+                    mailBox.sk,
+                    totalSize,
+                    messageProcessedCount,
+                    messageProcessedCount
+                )
+                // Send the new email notification to AppSync
+                mailRepository.notifyNewEmailsReceived(
+                    mailAccount,
+                    mailBox,
+                    firstSync,
+                    parsedSuccessResult.size,
+                    mailMessages
+                )
+            } else {
+                parsedFailedResult = parsedResult.filter { it.failed }
+            }
+            // Save the sync message information to the database
+            mailRepository.saveSyncInfo(
+                mailAccount,
+                mailBox.name,
+                parsedSuccessResult,
+                parsedFailedResult,
+                lastSyncInfo
+            )
             // Mark the sync status to SYNC successfully
             mailBoxSyncStatus = MailBoxSyncStatus.SYNCED
         } catch (e: Exception) {
             logger.error("Sync Email failed: message ${e.message}")
             // Mark the sync status to SYNC ERROR
             mailBoxSyncStatus = MailBoxSyncStatus.SYNC_ERR
-            // Send the sync email error notification to AppSync
-            this.mailRepository.notifySyncEmailError(
-                mailAccount,
-                mailBox,
-                "Sync Email failed with message: ${e.message}"
-            )
             throw e
         } finally {
-            // Update the mailbox last mailbox sync time
-            this.mailRepository.updateMailBoxLastSyncTime(mailBox, lastSyncTime)
-            // Update the mailbox size, count, and unread count
-            this.mailRepository.updateMailBoxMetric(mailBox.pk, mailBox.sk, totalSize, messageProcessedCount, messageProcessedCount)
             // Change status of mailbox
             this.mailRepository.changeMailBoxStatus(mailBox, mailBoxSyncStatus)
         }
     }
+
 
     /**
      * This method use to link email to the TO systems
@@ -280,12 +358,8 @@ class MailService {
         try {
             val (tenant, username) = authenticatedUser
             val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
-            // Mark the mail message as SEEN
-            mailRepository.changeMailMessageStatus(
-                tenant, username, getMailParams,
-                Flags(Flags.Flag.RECENT), Flags(Flags.Flag.SEEN)
-            )
-            return mailRepository.getThreadMails(tenant, username, getMailParams).map { it.toJsonWithCDN(mailCDN) }
+            return mailRepository.getThreadMails(tenant, username, getMailParams)
+                .map { it.toJson(mailCDN) }
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
@@ -316,7 +390,7 @@ class MailService {
             val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
             return mapOf(
                 "token" to lastEvaluatedKey,
-                "mails" to emails.map { it.toJsonWithCDN(mailCDN) }
+                "mails" to emails.map { it.toJson(mailCDN) }
             )
         } catch (e: Exception) {
             logger.error(e.toString())

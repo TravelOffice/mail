@@ -1,4 +1,4 @@
-package traveloffice.mail.controllers.constraints;
+package traveloffice.mail.controllers.constraints
 
 import traveloffice.mail.controllers.validators.EmailMessagesListValidator
 import javax.validation.Constraint

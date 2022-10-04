@@ -4,10 +4,9 @@ import com.amazonaws.services.dynamodbv2.datamodeling.*
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
-import com.google.gson.reflect.TypeToken
 import java.io.InputStream
-import java.lang.reflect.Type
 import javax.mail.Flags
+import javax.mail.Message
 import javax.mail.internet.InternetAddress
 
 
@@ -33,12 +32,19 @@ class MailMessage : BaseModel() {
     @DynamoDBAttribute(attributeName = "briefContent")
     lateinit var briefContent: String
 
+    @DynamoDBIgnore
+    var plainTextEmailBody: InputStream? = null
+
     @Expose
     @DynamoDBAttribute(attributeName = "htmlContent")
-    lateinit var htmlContent: String
+    var htmlContent: String = ""
 
     @DynamoDBIgnore
-    lateinit var htmlContentInputStream: InputStream
+    var rawHtmlContent: MailAttachment? = null
+
+    @Expose
+    @DynamoDBAttribute(attributeName = "metaData")
+    var metaData: String = ""
 
     @DynamoDBTypeConverted(converter = FlagTypeConverter::class)
     @DynamoDBAttribute(attributeName = "flags")
@@ -50,15 +56,15 @@ class MailMessage : BaseModel() {
 
     @Expose
     @DynamoDBAttribute(attributeName = "to")
-    var to: List<EmailAddress> = emptyList()
+    var to: BriefAddress = BriefAddress()
 
     @Expose
     @DynamoDBAttribute(attributeName = "cc")
-    var cc: List<EmailAddress>? = null
+    var cc: BriefAddress? = null
 
     @Expose
     @DynamoDBAttribute(attributeName = "bcc")
-    var bcc: List<EmailAddress>? = null
+    var bcc: BriefAddress? = null
 
     @Expose
     @DynamoDBAttribute(attributeName = "inReplyTo")
@@ -72,6 +78,12 @@ class MailMessage : BaseModel() {
     @DynamoDBAttribute(attributeName = "size")
     var size: Long = 0
 
+    @DynamoDBIgnore
+    var raw: Message? = null
+
+    @DynamoDBAttribute(attributeName = "uid")
+    var uid: String? = null
+
     val fromAsInternetAddress: InternetAddress
         @DynamoDBIgnore
         get() {
@@ -81,14 +93,14 @@ class MailMessage : BaseModel() {
     val toAsInternetAddresses: List<InternetAddress>
         @DynamoDBIgnore
         get() {
-            return this.to.map {
+            return this.to.rawAddress.map {
                 it.toInternetAddress()
             }
         }
     val ccAsInternetAddresses: List<InternetAddress>
         @DynamoDBIgnore
         get() {
-            return this.cc?.map {
+            return this.cc?.rawAddress?.map {
                 it.toInternetAddress()
             } ?: emptyList()
         }
@@ -96,15 +108,16 @@ class MailMessage : BaseModel() {
     val bccAsInternetAddresses: List<InternetAddress>
         @DynamoDBIgnore
         get() {
-            return this.bcc?.map {
+            return this.bcc?.rawAddress?.map {
                 it.toInternetAddress()
             } ?: emptyList()
         }
 
 
     fun clone(): MailMessage {
-        val jsonString = Gson().toJson(this, MailMessage::class.java)
-        return Gson().fromJson(jsonString, MailMessage::class.java)
+        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
+        val jsonString = gson.toJson(this, MailMessage::class.java)
+        return gson.fromJson(jsonString, MailMessage::class.java)
     }
 
     /**
@@ -118,14 +131,15 @@ class MailMessage : BaseModel() {
         return json
     }
 
-    fun toJsonWithCDN(CDN: String): Map<String, Any> {
-        val restrictMessage = this.clone()
-        restrictMessage.htmlContent = "$CDN/${restrictMessage.htmlContent}"
-        restrictMessage.attachments = restrictMessage.attachments?.map {
+    fun toJson(CDN: String): Map<String, Any> {
+        val newMessage = this.clone()
+        newMessage.htmlContent = "$CDN/${newMessage.htmlContent}"
+        newMessage.metaData = "$CDN/${newMessage.metaData}"
+        newMessage.attachments = newMessage.attachments?.map {
             it.path = "$CDN/${it.path}"
             return@map it
         }
-        return restrictMessage.toJson()
+        return newMessage.toJson()
     }
 
     // Converts the complex type FlagType to a string and vice-versa.
