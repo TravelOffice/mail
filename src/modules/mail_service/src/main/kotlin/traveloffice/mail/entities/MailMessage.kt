@@ -15,7 +15,7 @@ import javax.mail.internet.InternetAddress
 
 
 @DynamoDBTable(tableName = "mail_table")
-class MailMessage : BaseModel() {
+open class MailMessage : BaseModel() {
     @Expose
     @DynamoDBAttribute(attributeName = "messageId")
     lateinit var messageId: String

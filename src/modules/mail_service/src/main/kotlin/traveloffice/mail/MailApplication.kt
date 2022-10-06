@@ -25,7 +25,6 @@ import traveloffice.mail.services.MailService
 import traveloffice.mail.services.SecretManagerService
 import javax.annotation.PreDestroy
 
-
 @SpringBootApplication
 class MailApplication : ApplicationRunner {
     @Autowired

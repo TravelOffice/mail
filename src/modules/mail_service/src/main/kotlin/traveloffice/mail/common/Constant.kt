@@ -34,7 +34,7 @@ class Constant {
         const val MAIL_BUCKET = "MAIL_BUCKET"
         const val S3_TEMPORARY_UPLOAD_FOLDER = "temporary-upload"
         const val MAIL_CDN = "MAIL_CDN"
-        val DEFAULT_MAILBOX = arrayOf("INBOX", "SENT", "DRAFT", "DELETE", "SPAM")
+        val DEFAULT_MAILBOX = arrayOf("INBOX", "SENT", "DRAFT", "DELETE", "SPAM", "SCHEDULED")
         const val TESTING_MAIL_SUBJECT = "iTAB Test Message"
         const val TESTING_MAIL_CONTEXT = "This is an e-mail message sent automatically by iTAB while testing the settings for your account."
         const val ERROR_VALIDATOR = "ERROR_VALIDATOR"
@@ -46,11 +46,14 @@ class Constant {
         const val ERROR_EMAIL_ADDRESS_IS_INVALID = "ERROR_EMAIL_ADDRESS_IS_INVALID"
         const val ERROR_DOWNLOAD_ATTACHMENT = "ERROR_DOWNLOAD_ATTACHMENT"
         const val ERROR_MAIL_PROVIDER_NOT_SUPPORTED = "ERROR_MAIL_PROVIDER_NOT_SUPPORTED"
+        const val ERROR_EXCEEDED_SERVICE_QUOTA = "ERROR_EXCEEDED_SERVICE_QUOTA"
         const val ERROR_UNKNOWN = "ERROR_UNKNOWN"
         const val DEFAULT_MAILBOX_INBOX = "INBOX"
         const val DEFAULT_MAILBOX_SENT = "SENT"
         const val DEFAULT_MAILBOX_DRAFT = "DRAFT"
         const val DEFAULT_MAILBOX_SPAM = "SPAM"
         const val DEFAULT_MAILBOX_DELETE = "DELETE"
+        const val DEFAULT_MAILBOX_SCHEDULED = "SCHEDULED"
+        const val MAXIMUM_SCHEDULED_MAIL = 10
     }
 }
