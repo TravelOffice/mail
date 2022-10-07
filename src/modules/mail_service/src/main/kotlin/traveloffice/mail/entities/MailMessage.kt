@@ -117,7 +117,11 @@ class MailMessage : BaseModel() {
     fun clone(): MailMessage {
         val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
         val jsonString = gson.toJson(this, MailMessage::class.java)
-        return gson.fromJson(jsonString, MailMessage::class.java)
+        val clone = gson.fromJson(jsonString, MailMessage::class.java)
+        clone.to = Gson().fromJson(Gson().toJson(this.to, BriefAddress::class.java), BriefAddress::class.java)
+        clone.cc = Gson().fromJson(Gson().toJson(this.cc, BriefAddress::class.java), BriefAddress::class.java)
+        clone.bcc = Gson().fromJson(Gson().toJson(this.bcc, BriefAddress::class.java), BriefAddress::class.java)
+        return clone
     }
 
     /**
