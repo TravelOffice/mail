@@ -4,6 +4,7 @@ import com.amazonaws.services.dynamodbv2.datamodeling.*
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
+import traveloffice.mail.extensions.toCDNUrl
 import java.io.InputStream
 import javax.mail.Flags
 import javax.mail.Message
@@ -137,10 +138,10 @@ class MailMessage : BaseModel() {
 
     fun toJson(CDN: String): Map<String, Any> {
         val newMessage = this.clone()
-        newMessage.htmlContent = "$CDN/${newMessage.htmlContent}"
-        newMessage.metaData = "$CDN/${newMessage.metaData}"
+        newMessage.htmlContent = newMessage.htmlContent.toCDNUrl(CDN)
+        newMessage.metaData = newMessage.metaData.toCDNUrl(CDN)
         newMessage.attachments = newMessage.attachments?.map {
-            it.path = "$CDN/${it.path}"
+            it.path = it.path.toCDNUrl(CDN)
             return@map it
         }
         return newMessage.toJson()
