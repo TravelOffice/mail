@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
+import tech.blueglacier.email.EmailAttachment
 import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DELETE
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DRAFT
@@ -51,8 +52,21 @@ class MailService {
      * Return [MailMessage] object
      */
     fun sendEmail(authenticatedUser: AuthenticatedUser, sendMailRequestPayload: SendMailRequestPayload): MailMessage {
-        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
-        val storeMessage = gson.fromJson(Gson().toJson(sendMailRequestPayload), MailMessage::class.java)
+        val storeMessage = MailMessage()
+        storeMessage.subject = sendMailRequestPayload.subject
+        storeMessage.htmlContent = sendMailRequestPayload.htmlContent
+        storeMessage.from = sendMailRequestPayload.from
+        storeMessage.attachments = sendMailRequestPayload.attachments?.map {
+            MailAttachment.Builder()
+                .withName(it.name)
+                .withEncoding(it.encoding)
+                .withMimeType(it.mimeType)
+                .withPath(it.path)
+                .build()
+        }
+        storeMessage.to = BriefAddress.Builder().withAddresses(sendMailRequestPayload.to).build()
+        storeMessage.cc = sendMailRequestPayload.cc?.let { BriefAddress.Builder().withAddresses(it).build() }
+        storeMessage.bcc = sendMailRequestPayload.bcc?.let { BriefAddress.Builder().withAddresses(it).build() }
         val sendingMessage = storeMessage.clone()
 
         // Check mail account exist or not
