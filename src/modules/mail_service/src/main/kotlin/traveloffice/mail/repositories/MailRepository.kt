@@ -208,7 +208,11 @@ class MailRepository {
         mailMessage.to = BriefAddress.Builder().withAddresses(listOf(emailAddress)).build()
         mailMessage.from = listOf(emailAddress)
         mailMessage.subject = TESTING_MAIL_SUBJECT
-        mailMessage.htmlContent = TESTING_MAIL_CONTEXT
+        mailMessage.rawHtmlContent = MailAttachment.Builder()
+            .withName("index.html")
+            .withMimeType("text/html; charset=utf-8")
+            .withInputStream(TESTING_MAIL_CONTEXT.byteInputStream())
+            .build()
         smtpProvider.sendMail(mailAccount, mailMessage)
     }
 

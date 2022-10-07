@@ -25,3 +25,10 @@ fun String.decrypt(secretKey: String): String {
 fun String.encodeToURL(): String {
     return URLEncoder.encode(this, "UTF-8")
 }
+
+fun String.toCDNUrl(CDN: String): String {
+    if (this.isNotEmpty()) {
+        return "$CDN/$this"
+    }
+    return this
+}
