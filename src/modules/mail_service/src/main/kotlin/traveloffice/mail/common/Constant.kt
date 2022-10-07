@@ -7,13 +7,19 @@ class Constant {
         const val MAIL_ACCOUNT_INDEX = "MAIL_ACCOUNT"
         const val USER_INDEX = "USER"
         const val MESSAGE_INDEX = "MESSAGE"
+        const val SUCCESS_INDEX = "SUCCESS"
+        const val FAILED_INDEX = "FAILED"
+        const val UID_INDEX = "UID"
         const val DEFAULT_MAX_NUMBER_MESSAGE = 5
         const val DEFAULT_WAIT_TIME_SECOND = 5
-        const val DEFAULT_VISIBLE_TIME_OUT = 30 * 60
+        const val DEFAULT_VISIBLE_TIME_OUT = 3600
         const val DEFAULT_PRESIGNED_URL_EXPIRATION: Int = 5
-        const val DEFAULT_MAX_NUMBER_OF_MESSAGE = 5
+        const val DEFAULT_MAX_THREAD_POOL = 5
         const val DEFAULT_MAIL_TIMEOUT = 5000
         const val DEFAULT_NUMBER_OF_MAILS_TO_FETCH = 10
+        const val DEFAULT_NUMBER_OF_MAILS_TO_SYNC = 100L
+        const val MAX_NUMBER_LAST_SYNC_STATUS_COUNT = 5L
+        const val MAX_BRIEF_ADDRESS_SIZE = 3
         const val DEFAULT_ENCODING = "UTF-8"
         const val COGNITO_USERNAME_DELIMITER = "#"
         const val ENCRYPT_SECRET_KEY = "ENCRYPT_SECRET_KEY"
@@ -24,7 +30,6 @@ class Constant {
         const val LESS_THAN_EQUAL_MESSAGE = "should be less than or equal to"
         const val BLANK_MESSAGE = "cannot be blank"
         const val MAIL_NEW_EMAIL_RECEIVED = "MAIL_NEW_EMAIL_RECEIVED"
-        const val MAIL_SYNC_EMAIL_FAILED = "MAIL_SYNC_EMAIL_FAILED"
         const val MAIL_BUCKET = "MAIL_BUCKET"
         const val S3_TEMPORARY_UPLOAD_FOLDER = "temporary-upload"
         const val MAIL_CDN = "MAIL_CDN"
@@ -39,6 +44,7 @@ class Constant {
         const val ERROR_LOGIN_TO_OUTBOUND_SERVER = "ERROR_LOGIN_TO_OUTBOUND_SERVER"
         const val ERROR_EMAIL_ADDRESS_IS_INVALID = "ERROR_EMAIL_ADDRESS_IS_INVALID"
         const val ERROR_DOWNLOAD_ATTACHMENT = "ERROR_DOWNLOAD_ATTACHMENT"
+        const val ERROR_MAIL_PROVIDER_NOT_SUPPORTED = "ERROR_MAIL_PROVIDER_NOT_SUPPORTED"
         const val ERROR_UNKNOWN = "ERROR_UNKNOWN"
         const val DEFAULT_MAILBOX_INBOX = "INBOX"
         const val DEFAULT_MAILBOX_SENT = "SENT"

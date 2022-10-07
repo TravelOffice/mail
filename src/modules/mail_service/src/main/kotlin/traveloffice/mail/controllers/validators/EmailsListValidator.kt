@@ -11,7 +11,7 @@ class EmailMessagesListValidator : ConstraintValidator<EmailMessagesList?, List<
             // Validate rule for message id
             // Rule can be validated follow system template in the future
             val validator = NotBlankValidator()
-            return emails.all { it -> validator.isValid(it, context) }
+            return emails.all { validator.isValid(it, context) }
         }
 
         return true

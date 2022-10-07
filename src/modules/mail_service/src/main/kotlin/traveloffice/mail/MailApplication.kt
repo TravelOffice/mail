@@ -1,7 +1,9 @@
 package traveloffice.mail
 
 import com.google.gson.Gson
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -19,11 +21,6 @@ import traveloffice.mail.exceptions.UnSupportedEvent
 import traveloffice.mail.services.MailMessageQueueService
 import traveloffice.mail.services.MailService
 import traveloffice.mail.services.SecretManagerService
-import java.io.InputStream
-import java.util.concurrent.Executor
-import java.util.concurrent.Executors
-import java.util.stream.IntStream
-import kotlin.streams.toList
 
 
 @SpringBootApplication
@@ -38,10 +35,6 @@ class MailApplication : ApplicationRunner {
     lateinit var mailService: MailService
 
     var logger: Logger = LoggerFactory.getLogger(MailApplication::class.java)
-
-    companion object {
-        var isMailQueueTask = false
-    }
 
     @Bean
     fun corsConfigurer(): WebMvcConfigurer? {

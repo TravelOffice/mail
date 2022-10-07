@@ -13,6 +13,7 @@ java.sourceCompatibility = JavaVersion.VERSION_17
 
 repositories {
 	mavenCentral()
+	maven("https://jitpack.io")
 }
 
 dependencies {
@@ -30,9 +31,8 @@ dependencies {
 	implementation("software.amazon.awssdk:secretsmanager:2.17.276")
 	implementation("software.amazon.awssdk:sqs:2.17.276")
 	implementation("com.google.code.gson:gson:2.9.1")
-	implementation("com.sun.mail:javax.mail:1.6.2")
 	implementation("org.jsoup:jsoup:1.15.3")
-	implementation("tech.blueglacier:email-mime-parser:1.0.5")
+	implementation("com.github.TravelOffice:email_mime_parser:v1.0.6")
 	implementation("javax.xml.bind:jaxb-api:2.4.0-b180830.0359")
 	implementation("com.squareup.okhttp3:okhttp:4.10.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
@@ -41,7 +41,7 @@ dependencies {
 
 tasks.withType<KotlinCompile> {
 	kotlinOptions {
-		freeCompilerArgs = listOf("-Xjsr305=strict")
+		freeCompilerArgs = listOf("-Xjsr305=strict", "-opt-in=kotlin.RequiresOptIn")
 		jvmTarget = "17"
 	}
 }

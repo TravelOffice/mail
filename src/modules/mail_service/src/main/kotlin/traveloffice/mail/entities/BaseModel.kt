@@ -3,8 +3,6 @@ package traveloffice.mail.entities
 import com.amazonaws.services.dynamodbv2.datamodeling.*
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
-import com.google.gson.reflect.TypeToken
-import java.lang.reflect.Type
 import java.util.*
 
 @DynamoDBDocument

@@ -1,7 +1,5 @@
 package traveloffice.mail.controllers
 
-import com.google.gson.JsonObject
-import com.nimbusds.jose.shaded.json.JSONObject
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity

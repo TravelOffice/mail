@@ -110,12 +110,4 @@ class MailAccount : BaseModel() {
     @Expose
     @DynamoDBAttribute(attributeName = "username")
     lateinit var username: String
-
-    /**
-     * Returns json object with only exposed values
-     */
-    override fun toJson(): MutableMap<String, Any> {
-        // Get restricted json data
-        return super.toJson()
-    }
 }

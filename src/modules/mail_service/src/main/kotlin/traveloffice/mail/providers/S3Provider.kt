@@ -3,7 +3,6 @@ package traveloffice.mail.providers
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.*
-import traveloffice.mail.common.Constant
 import java.net.URL
 
 class S3Provider(region: String) {
@@ -27,6 +26,18 @@ class S3Provider(region: String) {
     fun putObject(putObjectRequest: PutObjectRequest): PutObjectResult = this.s3Client.putObject(putObjectRequest)
 
     /**
+     * This method perform to uploads a new object to the specified Amazon S3 bucket
+     *
+     * @param bucketName – The request object containing all the parameters to upload a new object to Amazon S3.
+     * @param key – The request object containing all the parameters to upload a new object to Amazon S3.
+     * @param content – The request object containing all the parameters to upload a new object to Amazon S3.
+     *
+     * @return A PutObjectResult object containing the information returned by Amazon S3 for the newly created object.
+     * @exception
+     */
+    fun putObjectString(bucketName: String, key: String, content: String): PutObjectResult = this.s3Client.putObject(bucketName, key, content)
+
+    /**
      * This method perform to get an object from the specified Amazon S3 bucket
      *
      * @param getObjectRequest – The request object containing all the options on how to download the object.
@@ -44,12 +55,12 @@ class S3Provider(region: String) {
     /**
      * Copy object [copyObjectRequest] then return [CopyObjectResult] object
      */
-    fun copyObject(copyObjectRequest: CopyObjectRequest): CopyObjectResult = this.s3Client.copyObject(copyObjectRequest)
+    private fun copyObject(copyObjectRequest: CopyObjectRequest): CopyObjectResult = this.s3Client.copyObject(copyObjectRequest)
 
     /**
      * Delete object with information in [deleteObjectRequest]
      */
-    fun deleteObject(deleteObjectRequest: DeleteObjectRequest) = this.s3Client.deleteObject(deleteObjectRequest)
+    private fun deleteObject(deleteObjectRequest: DeleteObjectRequest) = this.s3Client.deleteObject(deleteObjectRequest)
 
     /**
      * Move object [sourceKey] of [bucket] to [destinationKey] of [bucket] and set [mimeType], [encoding] for new object

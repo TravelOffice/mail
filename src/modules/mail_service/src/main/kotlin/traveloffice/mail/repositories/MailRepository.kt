@@ -1,34 +1,42 @@
 package traveloffice.mail.repositories
 
 import com.amazonaws.HttpMethod
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
 import com.amazonaws.services.dynamodbv2.datamodeling.KeyPair
 import com.amazonaws.services.dynamodbv2.document.ItemUtils
+import com.amazonaws.services.dynamodbv2.model.AttributeAction
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
+import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate
+import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest
 import com.amazonaws.services.s3.model.*
 import com.google.gson.Gson
+import org.apache.commons.collections.ListUtils
+import org.apache.commons.io.IOUtils
+import org.jsoup.Jsoup
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
-import tech.blueglacier.email.HtmlEmailBody
 import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.DEFAULT_ENCODING
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_FETCH
+import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_SYNC
 import traveloffice.mail.common.Constant.Companion.DEFAULT_PRESIGNED_URL_EXPIRATION
 import traveloffice.mail.common.Constant.Companion.ENCRYPT_SECRET_KEY
+import traveloffice.mail.common.Constant.Companion.FAILED_INDEX
 import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_BUCKET
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.MAIL_NEW_EMAIL_RECEIVED
-import traveloffice.mail.common.Constant.Companion.MAIL_SYNC_EMAIL_FAILED
+import traveloffice.mail.common.Constant.Companion.MAX_NUMBER_LAST_SYNC_STATUS_COUNT
 import traveloffice.mail.common.Constant.Companion.MESSAGE_INDEX
 import traveloffice.mail.common.Constant.Companion.S3_TEMPORARY_UPLOAD_FOLDER
+import traveloffice.mail.common.Constant.Companion.SUCCESS_INDEX
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
 import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_CONTEXT
 import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_SUBJECT
@@ -40,18 +48,19 @@ import traveloffice.mail.exceptions.UnSupportedInboxType
 import traveloffice.mail.extensions.decrypt
 import traveloffice.mail.extensions.encodeToURL
 import traveloffice.mail.extensions.encrypt
-import traveloffice.mail.extensions.subString
 import traveloffice.mail.providers.AppSyncProvider
 import traveloffice.mail.providers.MailProviderFactory
 import traveloffice.mail.providers.S3Provider
 import traveloffice.mail.providers.SMTPProvider
 import traveloffice.mail.services.SecretManagerService
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.*
-import javax.mail.Flags
-import javax.mail.Message
 import javax.mail.internet.InternetAddress
 
 
@@ -60,6 +69,9 @@ import javax.mail.internet.InternetAddress
 class MailRepository {
     @Autowired
     lateinit var dynamoDBMapper: DynamoDBMapper
+
+    @Autowired
+    lateinit var dynamoDBClient: AmazonDynamoDB
 
     @Autowired
     lateinit var mailProviderFactory: MailProviderFactory
@@ -92,18 +104,22 @@ class MailRepository {
      * @return List of new message from the last sync
      * @exception UnSupportedInboxType
      */
-    fun getLastMailBoxSync(mailAccount: MailAccount, mailBox: MailBox): List<Message> {
+    fun getNewEmailFromLastSync(
+        mailAccount: MailAccount,
+        mailBox: MailBox,
+        lastSyncInfo: List<MailMessageSyncStatus>
+    ): List<MailMessage> {
         logger.info("getLastMailBoxSync MailBox[${mailBox.name}] with MailAccount [${mailAccount.name}]")
         val mailProvider = mailProviderFactory.makeProvider(mailAccount.protocol)
-        val lastMailboxSync = mailBox.lastMailboxSync
         val mailBoxName = mailBox.name
-        return if (lastMailboxSync == null) {
-            // Get all message for the first sync
-            mailProvider.getMessages(mailAccount, mailBoxName)
+        return if (lastSyncInfo.isEmpty()) {
+            // The first sync time, limit the number of message to sync
+            mailProvider.getMessages(mailAccount, mailBoxName, DEFAULT_NUMBER_OF_MAILS_TO_SYNC)
         } else {
-            val lastSync = Date(lastMailboxSync)
-            // Get all message from the last sync to now
-            mailProvider.getMessages(mailAccount, mailBoxName, lastSync, null)
+            val lastSyncFailedInfoUID = this.getSyncInfo(mailAccount, mailBox.name, true).map { it.uid }
+            val lastSyncInfoUID = lastSyncInfo.map { it.uid }
+            val lastSyncTime = lastSyncInfo.first().syncTime
+            mailProvider.getMessages(mailAccount, mailBoxName, lastSyncInfoUID, lastSyncFailedInfoUID, lastSyncTime)
         }
     }
 
@@ -117,44 +133,42 @@ class MailRepository {
      * Step 4: Create the mail message information.
      *
      * @param mailAccount: The mail account information.
-     * @param message: The message information.
+     * @param mailMessage: The mail message information.
      * @return Mail message information which parsed from message.
      * @exception
      */
-    fun toEmail(mailAccount: MailAccount, message: Message): MailMessage {
+    fun parseMailMessage(mailAccount: MailAccount, mailMessage: MailMessage) {
+        val message = mailMessage.raw!!
+        logger.info(
+            "Start parse message [${message.messageNumber}] " +
+                    "from Tenant [${mailAccount.tenant}] User [${mailAccount.username}] " +
+                    "Mail Account [${mailAccount.email}]"
+        )
         // Get the actual provider of the message
         val mailProvider = mailProviderFactory.makeProvider(mailAccount.protocol)
         // Use Mime4j parse the message
         val email = mailProvider.parseMessage(message)
 
-        // Get the brief content of the message
-        var briefContent = ""
-        if (email.plainTextEmailBody != null) {
-            val emailContentStream = email.plainTextEmailBody.`is`
-            val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
-            briefContent = emailContentStream.subString(defaultBriefContentSize)
-        }
-
         // Create the mail message information
-        val mailMessage = MailMessage()
         mailMessage.messageId = mailProvider.getMessageId(message)
-        mailMessage.briefContent = briefContent
-        mailMessage.htmlContent = this.storeHtmlContent(
-            mailAccount, mailMessage.messageId, email.htmlEmailBody as HtmlEmailBody
-        )
-        mailMessage.receivedDate = if (message.receivedDate != null) message.receivedDate.time else null
-        mailMessage.sentDate = if (message.sentDate != null) message.sentDate.time else null
+        mailMessage.plainTextEmailBody = email.plainTextEmailBody?.`is`
+        mailMessage.rawHtmlContent = getHtmlContentFromEmail(email.htmlEmailBody)
+        mailMessage.receivedDate = message.receivedDate?.time
+        mailMessage.sentDate = message.sentDate?.time
         mailMessage.subject = email.emailSubject ?: ""
         mailMessage.from = getAddressFromHeader(email.fromEmailHeaderValue)
-        mailMessage.to = getAddressFromHeader(email.toEmailHeaderValue)
-        mailMessage.cc = getAddressFromHeader(email.ccEmailHeaderValue)
-        mailMessage.bcc = getAddressFromHeader(email.header.getField("Bcc")?.body)
+        mailMessage.to = BriefAddress.Builder().withAddresses(getAddressFromHeader(email.toEmailHeaderValue)).build()
+        mailMessage.cc = BriefAddress.Builder().withAddresses(getAddressFromHeader(email.ccEmailHeaderValue)).build()
+        mailMessage.bcc = BriefAddress.Builder().withAddresses(getAddressFromHeader(email.bccEmailHeaderValue)).build()
         mailMessage.inReplyTo = mailProvider.getInRelyTo(message)
-        mailMessage.attachments = getAttachmentsFromEmail(
-            mailAccount, mailMessage.messageId, email.attachments
-        )
+        mailMessage.attachments = getAttachmentsFromEmail(email.attachments)
         mailMessage.size = email.emailSize.toLong()
-        return mailMessage
+        logger.info(
+            "Parse successfully message [${message.messageNumber}] " +
+                    "with messageID [${mailMessage.messageId}] " +
+                    "from Tenant [${mailAccount.tenant}] User [${mailAccount.username}] " +
+                    "Mail Account [${mailAccount.email}]"
+        )
     }
 
     /**
@@ -167,7 +181,7 @@ class MailRepository {
      */
     private fun getAddressFromHeader(headerValue: String?): List<EmailAddress> {
         if (headerValue.isNullOrEmpty()) return emptyList()
-        return InternetAddress.parse(headerValue).map {
+        return InternetAddress.parseHeader(headerValue, false).map {
             val emailAddress = EmailAddress()
             emailAddress.address = it.address
             emailAddress.personal = it.personal ?: null
@@ -191,7 +205,7 @@ class MailRepository {
         // Validate outgoing server
         val mailMessage = MailMessage()
         val emailAddress = EmailAddress.Builder().setEmailAddress(mailAccount.email).build()
-        mailMessage.to = listOf(emailAddress)
+        mailMessage.to = BriefAddress.Builder().withAddresses(listOf(emailAddress)).build()
         mailMessage.from = listOf(emailAddress)
         mailMessage.subject = TESTING_MAIL_SUBJECT
         mailMessage.htmlContent = TESTING_MAIL_CONTEXT
@@ -219,16 +233,12 @@ class MailRepository {
     /**
      * This method perform to get the attachments from the message attachments
      *
-     * @param mailAccount: The mail account information.
-     * @param messageId: The message Id.
      * @param attachments: The list email attachment.
      *
      * @return The list of MailAttachment.
      * @exception
      */
-    private fun getAttachmentsFromEmail(
-        mailAccount: MailAccount, messageId: String, attachments: List<Attachment>,
-    ): List<MailAttachment>? {
+    private fun getAttachmentsFromEmail(attachments: List<Attachment>): List<MailAttachment>? {
         if (attachments.isEmpty()) return null
         return attachments.map {
             val attachment = MailAttachment()
@@ -237,9 +247,19 @@ class MailRepository {
             attachment.size = it.attachmentSize.toLong()
             attachment.encoding = it.bd.charset ?: DEFAULT_ENCODING
             attachment.inputStream = it.`is`
-            attachment.path = this.storeAttachment(mailAccount, messageId, attachment)
             return@map attachment
         }.toList()
+    }
+
+    private fun getHtmlContentFromEmail(htmlEmailBody: Attachment?): MailAttachment? {
+        if (htmlEmailBody == null) return null
+        return MailAttachment.Builder()
+            .withName("index.html")
+            .withMimeType("text/html")
+            .withEncoding(htmlEmailBody.bd.charset)
+            .withSize(htmlEmailBody.attachmentSize.toLong())
+            .withInputStream(htmlEmailBody.`is`)
+            .build()
     }
 
     /**
@@ -346,32 +366,6 @@ class MailRepository {
     }
 
     /**
-     * Change status of mail message for given [getMailParams] which related to [tenant] and [username]
-     * Change from [fromFlags] to [toFlags]
-     */
-    fun changeMailMessageStatus(
-        tenant: String,
-        username: String,
-        getMailParams: GetMailRequestParams,
-        fromFlags: Flags,
-        toFlags: Flags
-    ) {
-        val mailMessage = this.getMailMessage(tenant, username, getMailParams)
-        if (mailMessage != null) {
-            val mailMessageUpdateRequest = MailMessageUpdateRequest.Builder()
-                .withHashKey(mailMessage.pk)
-                .withRangeKey(mailMessage.sk)
-                .build()
-
-            val flags = mailMessage.flags.clone() as Flags
-            flags.remove(fromFlags)
-            flags.add(toFlags)
-            mailMessageUpdateRequest.flags = flags
-            this.updateMailMessage(mailMessageUpdateRequest)
-        }
-    }
-
-    /**
      * Get mail account for given [username] that belong to [tenant]
      *
      * Returns [List] of [MailAccount] object
@@ -401,14 +395,157 @@ class MailRepository {
      * @return
      * @exception
      */
-    fun storeEmailToDatabase(mailAccount: MailAccount, mailBoxName: String, mailMessage: MailMessage) {
+    fun saveEmail(mailAccount: MailAccount, mailBoxName: String, mailMessage: MailMessage) {
         mailMessage.pk =
-            "${TENANT_INDEX}#${mailAccount.tenant}#" + "${USER_INDEX}#${mailAccount.username}#" + "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" + "${MAILBOX_INDEX}#${mailBoxName}"
+            "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}#${mailBoxName}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
-        (mailMessage.receivedDate ?: mailMessage.sentDate)?.let {
-            mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBoxName}#${it}"
+        mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBoxName}#${mailMessage.sentDate}"
+
+        val rawHtmlContent = mailMessage.rawHtmlContent
+        if (mailMessage.htmlContent == "" && rawHtmlContent != null) {
+            // Keep the html input stream to get brief content
+            val byteArrayOutputStream = ByteArrayOutputStream()
+            rawHtmlContent.inputStream?.transferTo(byteArrayOutputStream)
+            rawHtmlContent.inputStream = ByteArrayInputStream(byteArrayOutputStream.toByteArray())
+            mailMessage.htmlContent = storeHtmlContent(mailAccount, mailMessage.messageId, rawHtmlContent)
+            rawHtmlContent.inputStream = ByteArrayInputStream(byteArrayOutputStream.toByteArray())
         }
+        mailMessage.attachments = mailMessage.attachments?.map {
+            if (it.inputStream != null) {
+                it.path = storeAttachment(mailAccount, mailMessage.messageId, it)
+            }
+            return@map it
+        }
+        // Get the brief content of the message
+        var briefContent = ""
+        try {
+            val rawHtmlContentIs = mailMessage.rawHtmlContent?.inputStream
+            if (rawHtmlContentIs != null) {
+                // Parse brief content from html content
+                val doc = Jsoup.parse(rawHtmlContentIs, StandardCharsets.UTF_8.toString(), "")
+                val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
+                val stringContent = IOUtils.toString(doc.text().byteInputStream(), StandardCharsets.UTF_8).trim()
+                briefContent = stringContent
+                    .substring(0, defaultBriefContentSize.coerceAtMost(stringContent.length))
+                    .replace("\n", "")
+                    .replace("\r", "")
+            }
+        } catch (e: IOException) {
+            logger.error("Cannot get brief content of message [${mailMessage.messageId}]")
+        }
+        mailMessage.briefContent = briefContent
+
+        // Save the metadata
+        val metaData = MailMessageMetaData(
+            mailMessage.to.rawAddress,
+            mailMessage.cc?.rawAddress,
+            mailMessage.bcc?.rawAddress
+        )
+        mailMessage.metaData = storeMetaData(mailAccount, mailMessage.messageId, metaData)
+
         return this.dynamoDBMapper.save(mailMessage)
+    }
+
+    /**
+     * Get all synced information from [mailAccount] and [mailBoxName]
+     */
+    fun getSyncInfo(mailAccount: MailAccount, mailBoxName: String, failed: Boolean): List<MailMessageSyncStatus> {
+        val syncInfoPk = "${TENANT_INDEX}#${mailAccount.tenant}#" +
+                "${USER_INDEX}#${mailAccount.username}#" +
+                "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" +
+                "${MAILBOX_INDEX}#${mailBoxName}"
+        val syncInfoSk = if (failed) {
+            FAILED_INDEX
+        } else {
+            SUCCESS_INDEX
+        }
+        val eav: HashMap<String, AttributeValue> = HashMap<String, AttributeValue>()
+        eav[":pk"] = AttributeValue().withS(syncInfoPk)
+        eav[":sk"] = AttributeValue().withS(syncInfoSk)
+
+        val queryExpression = DynamoDBQueryExpression<MailMessageSyncStatus>()
+            .withKeyConditionExpression("pk = :pk and begins_with(sk, :sk)")
+            .withExpressionAttributeValues(eav)
+            .withScanIndexForward(false) // DESC sk
+        return this.dynamoDBMapper.query(MailMessageSyncStatus::class.java, queryExpression)
+    }
+
+    /**
+     * Store all synced information [successResult] and [failedResult] from [mailAccount] and [mailBoxName] to Database
+     * Do following steps:
+     * - Batch remove last sync failed information
+     * - Batch load message items
+     * - If IMAP save only last synced information
+     * - Batch write message items to new partition belongs to database
+     */
+    fun saveSyncInfo(
+        mailAccount: MailAccount,
+        mailBoxName: String,
+        successResult: List<MailMessageSyncStatus>,
+        failedResult: List<MailMessageSyncStatus>,
+        lastSyncInfo: List<MailMessageSyncStatus>
+    ) {
+        // Delete all last sync error
+        val failedInfo = this.getSyncInfo(mailAccount, mailBoxName, true)
+        this.dynamoDBMapper.batchDelete(failedInfo)
+
+        val newSuccessResult = if (mailAccount.protocol == "imap") {
+            if (lastSyncInfo.isEmpty() && successResult.isNotEmpty()) {
+                listOf(successResult.first())
+            } else if (successResult.isNotEmpty() && (lastSyncInfo.first().uid.toLong() < successResult.first().uid.toLong())
+            ) {
+                this.dynamoDBMapper.batchDelete(lastSyncInfo)
+                listOf(successResult.first())
+            } else {
+                emptyList()
+            }
+        } else {
+            this.dynamoDBMapper.batchDelete(lastSyncInfo)
+            val newList = successResult.toMutableList()
+            newList.addAll(lastSyncInfo)
+            newList.sortedByDescending { it.syncTime }.stream().limit(MAX_NUMBER_LAST_SYNC_STATUS_COUNT).toList()
+        }
+
+        val syncInfoPk = "${TENANT_INDEX}#${mailAccount.tenant}#" +
+                "${USER_INDEX}#${mailAccount.username}#" +
+                "${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#" +
+                "${MAILBOX_INDEX}#${mailBoxName}"
+
+        val newSuccessSyncInfo = newSuccessResult.map { info ->
+            info.pk = syncInfoPk
+            info.sk = "${SUCCESS_INDEX}#${info.syncTime}"
+            return@map info
+        }
+        val newFailedSyncInfo = failedResult.map { info ->
+            info.pk = syncInfoPk
+            info.sk = "${FAILED_INDEX}#${info.uid}"
+            return@map info
+        }
+
+        // Batch write list of messages to new mailbox partition
+        this.dynamoDBMapper.batchSave(ListUtils.union(newSuccessSyncInfo, newFailedSyncInfo))
+    }
+
+    /**
+     * This method perform to save attachment content to S3
+     *
+     * @param mailAccount: The mailbox information.
+     * @param messageId: The message Id.
+     * @param attachment: The attachment information
+     *
+     * @return The path of attachment which saved to the local storage
+     * @exception
+     */
+    private fun storeMetaData(
+        mailAccount: MailAccount,
+        messageId: String,
+        mailMetaData: MailMessageMetaData
+    ): String {
+        val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val tenantKeyPrefix = "${mailAccount.tenant}/${mailAccount.username}/${mailAccount.email}/${messageId}"
+        val mailObjectKey = "${tenantKeyPrefix}/metadata"
+        this.s3Provider.putObjectString(mailBucket, mailObjectKey, mailMetaData.toJson())
+        return URLEncoder.encode(mailObjectKey, "UTF-8")
     }
 
     /**
@@ -434,6 +571,8 @@ class MailRepository {
         metadata.contentLength = attachment.size
         metadata.contentEncoding = attachment.encoding
         val putObjectRequest = PutObjectRequest(mailBucket, mailObjectKey, attachment.inputStream, metadata)
+        // S3 Put input stream for up to 128K memory buffering by default, it is not enough for some case large attachment
+        putObjectRequest.requestClientOptions.readLimit = 128 * 10 * 1024
         this.s3Provider.putObject(putObjectRequest)
         return URLEncoder.encode(mailObjectKey, "UTF-8")
     }
@@ -444,22 +583,22 @@ class MailRepository {
      *
      * @param mailAccount: The mail account information.
      * @param messageId: The message Id.
-     * @param htmlEmailBody: The email body as html content
+     * @param htmlContent: The email body as html content
      *
      * @return The path of html email body which saved to the local storage
      * @exception
      */
     private fun storeHtmlContent(
-        mailAccount: MailAccount, messageId: String, htmlEmailBody: HtmlEmailBody
+        mailAccount: MailAccount, messageId: String, htmlContent: MailAttachment
     ): String {
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
         val tenantKeyPrefix = "${mailAccount.tenant}/${mailAccount.username}/${mailAccount.email}/${messageId}"
-        val htmlObjectKey = "${tenantKeyPrefix}/htmlContent/index.html"
+        val htmlObjectKey = "${tenantKeyPrefix}/htmlContent/${htmlContent.name}"
         val metadata = ObjectMetadata()
-        metadata.contentType = "text/html"
-        metadata.contentEncoding = htmlEmailBody.bd.charset
-        metadata.contentLength = htmlEmailBody.`is`.available().toLong()
-        val putObjectRequest = PutObjectRequest(mailBucket, htmlObjectKey, htmlEmailBody.`is`, metadata)
+        metadata.contentType = htmlContent.mimeType
+        metadata.contentEncoding = htmlContent.encoding
+        metadata.contentLength = htmlContent.size
+        val putObjectRequest = PutObjectRequest(mailBucket, htmlObjectKey, htmlContent.inputStream, metadata)
         this.s3Provider.putObject(putObjectRequest)
         return URLEncoder.encode(htmlObjectKey, "UTF-8")
     }
@@ -474,28 +613,19 @@ class MailRepository {
      * @exception
      */
     fun changeMailBoxStatus(mailBox: MailBox, status: MailBoxSyncStatus) {
-        val box = MailBox()
-        box.pk = mailBox.pk
-        box.sk = mailBox.sk
-        box.syncStatus = status.toString()
-        this.updateMailBox(box)
-    }
-
-    /**
-     * This method perform to update the last sync time of mailbox
-     *
-     * @param mailBox: The mailbox information.
-     * @param syncTime: The current sync time to be updated.
-     *
-     * @return The path of html email body which saved to the local storage
-     * @exception
-     */
-    fun updateMailBoxLastSyncTime(mailBox: MailBox, syncTime: Date?) {
-        val box = MailBox()
-        box.pk = mailBox.pk
-        box.sk = mailBox.sk
-        box.lastMailboxSync = syncTime?.time
-        this.updateMailBox(box)
+        val mailTableName = this.secretManagerService.getAWSSecretValue("DYNAMO_MAIL_TABLE")
+        val key: Map<String, AttributeValue> = hashMapOf(
+            "pk" to AttributeValue().withS(mailBox.pk),
+            "sk" to AttributeValue().withS(mailBox.sk)
+        )
+        val attributeUpdates: Map<String, AttributeValueUpdate> = hashMapOf(
+            "syncStatus" to AttributeValueUpdate(AttributeValue().withS(status.toString()), AttributeAction.PUT)
+        )
+        val updateRequest: UpdateItemRequest = UpdateItemRequest()
+            .withTableName(mailTableName)
+            .withKey(key)
+            .withAttributeUpdates(attributeUpdates)
+        this.dynamoDBClient.updateItem(updateRequest)
     }
 
     /**
@@ -516,43 +646,22 @@ class MailRepository {
      * @return The new storage size of the mailbox
      * @exception
      */
-    fun updateMailBoxMetric(mailBoxPk: String, mailBoxSk: String, size: Long, count: Int, unread: Int) {
-        val currentMailBox = this.dynamoDBMapper.load(MailBox::class.java, mailBoxPk, mailBoxSk)
-        val box = MailBox()
-        box.pk = mailBoxPk
-        box.sk = mailBoxSk
-        box.size = (currentMailBox.size ?: 0) + size.toLong()
-        box.count = (currentMailBox.count ?: 0) + count
-        box.unread = (currentMailBox.unread ?: 0) + unread
-        this.updateMailBox(box)
-    }
-
-    /**
-     * This method perform to update the mailbox information
-     *
-     * @param mailBox: The mailbox information.
-     *
-     * @return The new storage size of the mailbox
-     * @exception
-     */
-    private fun updateMailBox(mailBox: MailBox) {
-        val config = DynamoDBMapperConfig.builder()
-            .withSaveBehavior(DynamoDBMapperConfig.SaveBehavior.UPDATE_SKIP_NULL_ATTRIBUTES).build()
-        return this.dynamoDBMapper.save(mailBox, config)
-    }
-
-    /**
-     * This method perform to update the mailbox information
-     *
-     * @param mailMessageUpdateRequest: The message update information.
-     *
-     * @return The new storage size of the mailbox
-     * @exception
-     */
-    private fun updateMailMessage(mailMessageUpdateRequest: MailMessageUpdateRequest) {
-        val config = DynamoDBMapperConfig.builder()
-            .withSaveBehavior(DynamoDBMapperConfig.SaveBehavior.UPDATE_SKIP_NULL_ATTRIBUTES).build()
-        return this.dynamoDBMapper.save(mailMessageUpdateRequest, config)
+    fun updateMailBoxMetric(mailBoxPk: String, mailBoxSk: String, size: Long = 0, count: Int = 0, unread: Int = 0) {
+        val mailTableName = this.secretManagerService.getAWSSecretValue("DYNAMO_MAIL_TABLE")
+        val key: Map<String, AttributeValue> = hashMapOf(
+            "pk" to AttributeValue().withS(mailBoxPk),
+            "sk" to AttributeValue().withS(mailBoxSk)
+        )
+        val attributeUpdates: Map<String, AttributeValueUpdate> = hashMapOf(
+            "size" to AttributeValueUpdate(AttributeValue().withN(size.toString()), AttributeAction.ADD),
+            "count" to AttributeValueUpdate(AttributeValue().withN(count.toString()), AttributeAction.ADD),
+            "unread" to AttributeValueUpdate(AttributeValue().withN(unread.toString()), AttributeAction.ADD)
+        )
+        val updateRequest: UpdateItemRequest = UpdateItemRequest()
+            .withTableName(mailTableName)
+            .withKey(key)
+            .withAttributeUpdates(attributeUpdates)
+        this.dynamoDBClient.updateItem(updateRequest)
     }
 
     /**
@@ -560,45 +669,28 @@ class MailRepository {
      *
      * @param mailAccount: The mail account information.
      * @param mailBox: The mailbox information.
-     * @param mailMessage: The mail message information to be notified.
+     * @param mailMessages: The mail message information to be notified.
      *
      * @return
      * @exception
      */
-    fun notifyNewEmailReceived(
+    fun notifyNewEmailsReceived(
         mailAccount: MailAccount,
         mailBox: MailBox,
-        mailMessage: MailMessage,
-        firstSync: Boolean
+        firstSync: Boolean,
+        messageCount: Int,
+        mailMessages: List<MailMessage>,
     ) {
         val notificationType = MAIL_NEW_EMAIL_RECEIVED
         val mailCDN = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
-        val data = this.dynamoDBMapper.load(
-            MailMessage::class.java, mailMessage.pk, mailMessage.sk
-        ).toJsonWithCDN(mailCDN).toMutableMap()
-        data["firstSync"] = firstSync
-
-        this.appSyncProvider.executeSendNotification(
-            notificationType, Gson().toJson(data), Date().time, mailAccount.tenant, mailAccount.username
-        )
-    }
-
-    /**
-     * This method perform to notification sync email failed
-     *
-     * @param mailAccount: The mail account information.
-     * @param mailBox: The mailbox information.
-     * @param message: The sync email error message.
-     *
-     * @return
-     * @exception
-     */
-    fun notifySyncEmailError(mailAccount: MailAccount, mailBox: MailBox, message: String) {
-        val notificationType = MAIL_SYNC_EMAIL_FAILED
-        val data = mapOf(
-            "mailbox" to mailBox.name,
-            "message" to message,
-        )
+        val data: Any = if (firstSync) {
+            mapOf(
+                "firstSync" to true,
+                "messageCount" to messageCount,
+            )
+        } else {
+            mailMessages.map { it.toJson(mailCDN) }
+        }
 
         this.appSyncProvider.executeSendNotification(
             notificationType, Gson().toJson(data), Date().time, mailAccount.tenant, mailAccount.username
@@ -663,23 +755,22 @@ class MailRepository {
      * Return total size of email
      */
     fun storeSentEmailToS3(tenant: String, username: String, mailMessage: MailMessage) {
-        val email = mailMessage.fromAsInternetAddress
+        val email = mailMessage.fromAsInternetAddress.address
         val messageId = mailMessage.messageId
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
-        val mailCdn = this.secretManagerService.getAWSSecretValue(MAIL_CDN)
 
         // Move html content
         val tenantKeyPrefix = "${tenant}/${username}/${email}/${messageId}"
         val htmlObjectKey = "${tenantKeyPrefix}/htmlContent/index.html"
         this.s3Provider.moveObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
-        mailMessage.htmlContent = "${mailCdn}/${htmlObjectKey.encodeToURL()}"
+        mailMessage.htmlContent = htmlObjectKey.encodeToURL()
         mailMessage.size = this.s3Provider.getObjectSize(mailBucket, htmlObjectKey)
 
         // Move attachments
         mailMessage.attachments?.forEach {
             val attachmentObjectKey = "${tenantKeyPrefix}/${it.name}"
             this.s3Provider.moveObject(mailBucket, it.path, attachmentObjectKey, it.mimeType, it.encoding)
-            it.path = "${mailCdn}/${attachmentObjectKey.encodeToURL()}"
+            it.path = attachmentObjectKey.encodeToURL()
             mailMessage.size += this.s3Provider.getObjectSize(mailBucket, attachmentObjectKey)
         }
         logger.info("Store sent email to s3 successfully")
@@ -799,7 +890,7 @@ class MailRepository {
             keyPair.hashKey = pk
             keyPair.rangeKey = "${MESSAGE_INDEX}#$it"
             return@map keyPair
-         }
+        }
         val mailMessagesKeyPairTable = mutableMapOf<Class<*>, List<KeyPair>>(
             MailMessage::class.java to keysList
         )
