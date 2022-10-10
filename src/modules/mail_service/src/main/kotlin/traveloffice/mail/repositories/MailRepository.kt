@@ -12,6 +12,9 @@ import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest
 import com.amazonaws.services.s3.model.*
 import com.google.gson.Gson
+import net.fortuna.ical4j.data.CalendarBuilder
+import net.fortuna.ical4j.data.ParserException
+import net.fortuna.ical4j.model.component.VEvent
 import org.apache.commons.collections.ListUtils
 import org.apache.commons.io.IOUtils
 import org.jsoup.Jsoup
@@ -153,6 +156,7 @@ class MailRepository {
         mailMessage.messageId = mailProvider.getMessageId(message)
         mailMessage.plainTextEmailBody = email.plainTextEmailBody?.`is`
         mailMessage.rawHtmlContent = getHtmlContentFromEmail(email.htmlEmailBody)
+        mailMessage.rawCalendarEvent = getCalendarEventFromEmail(email.calendarBody)
         mailMessage.receivedDate = message.receivedDate?.time
         mailMessage.sentDate = message.sentDate?.time
         mailMessage.subject = email.emailSubject ?: ""
@@ -263,6 +267,17 @@ class MailRepository {
             .withEncoding(htmlEmailBody.bd.charset)
             .withSize(htmlEmailBody.attachmentSize.toLong())
             .withInputStream(htmlEmailBody.`is`)
+            .build()
+    }
+
+    private fun getCalendarEventFromEmail(calendarBody: Attachment?): MailAttachment? {
+        if (calendarBody == null) return null
+        return MailAttachment.Builder()
+            .withName(calendarBody.attachmentName)
+            .withMimeType(calendarBody.bd.mimeType)
+            .withEncoding(calendarBody.bd.charset)
+            .withSize(calendarBody.attachmentSize.toLong())
+            .withInputStream(calendarBody.`is`)
             .build()
     }
 
@@ -414,29 +429,49 @@ class MailRepository {
             mailMessage.htmlContent = storeHtmlContent(mailAccount, mailMessage.messageId, rawHtmlContent)
             rawHtmlContent.inputStream = ByteArrayInputStream(byteArrayOutputStream.toByteArray())
         }
+
         mailMessage.attachments = mailMessage.attachments?.map {
             if (it.inputStream != null) {
                 it.path = storeAttachment(mailAccount, mailMessage.messageId, it)
             }
             return@map it
         }
+        val calendarEmailEvent = mailMessage.rawCalendarEvent
+        if (calendarEmailEvent != null) {
+            // Keep the calendar input stream to get brief content
+            val byteArrayOutputStream = ByteArrayOutputStream()
+            calendarEmailEvent.inputStream?.transferTo(byteArrayOutputStream)
+            calendarEmailEvent.inputStream = ByteArrayInputStream(byteArrayOutputStream.toByteArray())
+            mailMessage.calendarEvent = storeAttachment(mailAccount, mailMessage.messageId, calendarEmailEvent)
+            calendarEmailEvent.inputStream = ByteArrayInputStream(byteArrayOutputStream.toByteArray())
+        }
         // Get the brief content of the message
         var briefContent = ""
         try {
             val rawHtmlContentIs = mailMessage.rawHtmlContent?.inputStream
+            val calendarEmailEventIs = mailMessage.rawCalendarEvent?.inputStream
+            var stringContent = ""
             if (rawHtmlContentIs != null) {
                 // Parse brief content from html content
                 val doc = Jsoup.parse(rawHtmlContentIs, StandardCharsets.UTF_8.toString(), "")
-                val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
-                val stringContent = IOUtils.toString(doc.text().byteInputStream(), StandardCharsets.UTF_8).trim()
-                briefContent = stringContent
-                    .substring(0, defaultBriefContentSize.coerceAtMost(stringContent.length))
-                    .replace("\n", "")
-                    .replace("\r", "")
+                stringContent = IOUtils.toString(doc.text().byteInputStream(), StandardCharsets.UTF_8).trim()
+            } else if (calendarEmailEventIs != null) {
+                // Parse brief content from calendar content
+                val builder = CalendarBuilder()
+                val calendar = builder.build(calendarEmailEventIs)
+                stringContent = (calendar.components.first() as VEvent).description.value
             }
+            val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
+            briefContent = stringContent
+                .substring(0, defaultBriefContentSize.coerceAtMost(stringContent.length))
+                .replace("\n", "")
+                .replace("\r", "")
         } catch (e: IOException) {
             logger.error("Cannot get brief content of message [${mailMessage.messageId}]")
+        } catch (e: ParserException) {
+            logger.error("Cannot get brief content of message [${mailMessage.messageId}] wrong calendar event")
         }
+
         mailMessage.briefContent = briefContent
 
         // Save the metadata

@@ -37,6 +37,7 @@ dependencies {
 	implementation("com.squareup.okhttp3:okhttp:4.10.0")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
 	implementation("org.jsoup:jsoup:1.15.3")
+	implementation("org.mnode.ical4j:ical4j:3.2.5")
 }
 
 tasks.withType<KotlinCompile> {

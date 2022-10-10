@@ -40,8 +40,15 @@ class MailMessage : BaseModel() {
     @DynamoDBAttribute(attributeName = "htmlContent")
     var htmlContent: String = ""
 
+    @Expose
+    @DynamoDBAttribute(attributeName = "calendarEvent")
+    var calendarEvent: String = ""
+
     @DynamoDBIgnore
     var rawHtmlContent: MailAttachment? = null
+
+    @DynamoDBIgnore
+    var rawCalendarEvent: MailAttachment? = null
 
     @Expose
     @DynamoDBAttribute(attributeName = "metaData")
@@ -139,6 +146,7 @@ class MailMessage : BaseModel() {
     fun toJson(CDN: String): Map<String, Any> {
         val newMessage = this.clone()
         newMessage.htmlContent = newMessage.htmlContent.toCDNUrl(CDN)
+        newMessage.calendarEvent = newMessage.calendarEvent.toCDNUrl(CDN)
         newMessage.metaData = newMessage.metaData.toCDNUrl(CDN)
         newMessage.attachments = newMessage.attachments?.map {
             it.path = it.path.toCDNUrl(CDN)
