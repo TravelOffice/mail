@@ -36,7 +36,7 @@ resource "aws_ecs_service" "mail_queue" {
   network_configuration {
     subnets          = var.SUBNETS
     security_groups  = [aws_security_group.mail_queue.id]
-    assign_public_ip = true
+    assign_public_ip = false
   }
 
   capacity_provider_strategy {

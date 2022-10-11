@@ -1,5 +1,6 @@
 package traveloffice.mail.extensions
 
+import traveloffice.mail.common.Constant.Companion.MAIL_INDEX
 import java.net.URLEncoder
 import java.security.Key
 import java.util.*
@@ -31,4 +32,8 @@ fun String.toCDNUrl(CDN: String): String {
         return "$CDN/$this"
     }
     return this
+}
+
+fun String.toSearchIndex(): String {
+    return "${MAIL_INDEX}_${this.hashCode()}"
 }

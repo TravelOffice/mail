@@ -11,10 +11,14 @@ variable "MAIL_API_TASK_ENV" {}
 variable "AWS_REGION" {}
 variable "TAGS" {}
 variable "MAIL_TARGET_GROUP_ARN" {}
-variable "SUBNETS" {}
+variable "SEARCH_TARGET_GROUP_ARN" {}
+variable "PUBLIC_SUBNETS" {}
+variable "PRIVATE_SUBNETS" {}
 variable "VPC_ID" {}
 variable "MAIL_SERVICE_QUEUE_NAME" {}
 variable "MESSAGE_PER_TASK" {}
+variable "MEILI_SEARCH_MASTER_KEY" {}
+variable "MEILI_SEARCH_DATA_VOLUME" {}
 
 locals {
   cluster_name = "${upper("${var.ENV}-${var.FEATURE_NAME}")}-CLUSTER"
@@ -37,7 +41,7 @@ module "ECS_CLUSTER" {
   tags = var.TAGS
 }
 
-resource "aws_ecr_repository" "repo" {
+resource "aws_ecr_repository" "mail" {
   name = lower("${var.ENV}-${var.FEATURE_NAME}")
 }
 
@@ -45,7 +49,7 @@ module "ECS_MAIL_DOCKER_IMAGE" {
   source  = "terraform-aws-modules/lambda/aws//modules/docker-build"
   version = "2.34.0"
 
-  ecr_repo      = split("/", aws_ecr_repository.repo.repository_url)[1]
+  ecr_repo      = split("/", aws_ecr_repository.mail.repository_url)[1]
   ecr_repo_tags = var.TAGS
   source_path   = format("%s/%s", "../../..", "src/modules/mail_service")
 
@@ -90,7 +94,7 @@ module "ROLE" {
 }
 
 module "ECS_MAIL_API_TASK_DEFINITION" {
-  source        = "./task_definition/mail"
+  source        = "./task_definition/mail_api"
   TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}_api")
   TASK_ROLE_ARN = module.ROLE.arn
   IMAGE_URI     = module.ECS_MAIL_DOCKER_IMAGE.image_uri
@@ -115,13 +119,13 @@ module "ECS_MAIL_API_SERVICE" {
   MAX_CAPACITY          = 5
   MAIL_TARGET_GROUP_ARN = var.MAIL_TARGET_GROUP_ARN
   CONTAINER_NAME        = lower("${var.ENV}-${var.FEATURE_NAME}")
-  SUBNETS               = var.SUBNETS
+  SUBNETS               = var.PRIVATE_SUBNETS
   VPC_ID                = var.VPC_ID
   TAGS                  = var.TAGS
 }
 
 module "ECS_MAIL_QUEUE_TASK_DEFINITION" {
-  source        = "./task_definition/mail"
+  source        = "./task_definition/mail_queue"
   TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}_queue")
   TASK_ROLE_ARN = module.ROLE.arn
   IMAGE_URI     = module.ECS_MAIL_DOCKER_IMAGE.image_uri
@@ -147,11 +151,28 @@ module "ECS_MAIL_QUEUE_SERVICE" {
   MIN_CAPACITY            = 0
   MAX_CAPACITY            = 5
   CONTAINER_NAME          = lower("${var.ENV}-${var.FEATURE_NAME}")
-  SUBNETS                 = var.SUBNETS
+  SUBNETS                 = var.PRIVATE_SUBNETS
   VPC_ID                  = var.VPC_ID
   TAGS                    = var.TAGS
 }
 
+
+module "ECS_SEARCH_SERVICE" {
+  source                  = "./service/meili_search_service"
+  ENV                     = var.ENV
+  FEATURE_NAME            = var.FEATURE_NAME
+  SERVICE_NAME            = "${var.ENV}-${var.FEATURE_NAME}-service"
+  DESIRED_COUNT           = 1
+  MIN_CAPACITY            = 1
+  MAX_CAPACITY            = 1
+  SEARCH_TARGET_GROUP_ARN = var.SEARCH_TARGET_GROUP_ARN
+  SUBNETS                 = var.PRIVATE_SUBNETS
+  VPC_ID                  = var.VPC_ID
+  AWS_REGION              = var.AWS_REGION
+  MEILI_SEARCH_MASTER_KEY = var.MEILI_SEARCH_MASTER_KEY
+  SEARCH_DATA_VOLUME      = var.MEILI_SEARCH_DATA_VOLUME
+  TAGS                    = var.TAGS
+}
 
 output "name" {
   value = module.ECS_CLUSTER.cluster_name

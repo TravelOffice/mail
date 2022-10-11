@@ -64,3 +64,7 @@ output "mail_lb_target_group_arn" {
   value = module.MAIL_LB.mail_lb_target_group_arn
 }
 
+output "search_lb_target_group_arn" {
+  value = module.MAIL_LB.search_lb_target_group_arn
+}
+

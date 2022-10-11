@@ -1,0 +1,146 @@
+#!/bin/bash
+apt update -y
+apt install unzip curl wget -y
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip -o awscliv2.zip
+./aws/install
+
+# Force detach volume before attach
+aws ec2 detach-volume --volume-id ${volume_id} --force
+DATA_STATE="unknown"
+while [ "$${DATA_STATE}" != "" ]; do
+  DATA_STATE=$(aws ec2 describe-volumes --volume-id ${volume_id} --region ${region} --query Volumes[].Attachments[].State --output text)
+  echo "Wait for detaching... Current state is [$${DATA_STATE}]"
+  sleep 5
+done
+
+OUTPUT=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+aws ec2 attach-volume --volume-id ${volume_id} --device /dev/xvdb --instance-id $OUTPUT --region ${region}
+DATA_STATE="unknown"
+while [ "$${DATA_STATE}" != "attached" ]; do
+  DATA_STATE=$(aws ec2 describe-volumes --volume-id ${volume_id} --region ${region} --query Volumes[].Attachments[].State --output text)
+  echo "Wait for attaching... Current state is [$${DATA_STATE}]"
+  sleep 5
+done
+
+LOG_PATH=/var/log/meilisearch
+VOLUME_PATH=/meilidata
+DATA_PATH=/meilidata/data.ms
+mkdir -p $LOG_PATH
+mkdir -p $VOLUME_PATH
+mount /dev/xvdb $VOLUME_PATH
+if [ $? -ne 0 ]; then
+    mkfs.ext4 /dev/xvdb
+    mount /dev/xvdb $VOLUME_PATH
+fi
+mkdir -p $DATA_PATH
+# Install Meilisearch
+wget https://github.com/meilisearch/meilisearch/releases/download/v0.29.1/meilisearch.deb
+dpkg -i meilisearch.deb
+cat << EOF > /etc/systemd/system/meilisearch.service
+[Unit]
+Description=Meilisearch
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/meilisearch
+StandardOutput=append:$${LOG_PATH}/access.log
+StandardError=append:$${LOG_PATH}/error.log
+
+[Install]
+WantedBy=default.target
+EOF
+mkdir -p /etc/systemd/system/meilisearch.service.d
+cat << EOF > /etc/systemd/system/meilisearch.service.d/environment.conf
+[Service]
+Environment="MEILI_MASTER_KEY=${master_key}"
+Environment="MEILI_NO_ANALYTICS=true"
+Environment="MEILI_ENV=${env}"
+Environment="MEILI_HTTP_ADDR=127.0.0.1:7700"
+Environment="MEILI_LOG_LEVEL=${log_level}"
+Environment="MEILI_DB_PATH=$${DATA_PATH}"
+EOF
+
+# Reload the operating system daemons / services
+systemctl daemon-reload
+
+# Set the service meilisearch
+systemctl enable meilisearch
+
+# Start the meilisearch service
+systemctl start meilisearch
+
+# Verify that the service is actually running
+systemctl status meilisearch --no-pager -l
+
+# Install Nginx on Debian
+apt-get install nginx -y
+
+# Delete the default configuration file for Nginx
+rm -f /etc/nginx/sites-enabled/default
+
+# Add your configuration file specifying the Reverse Proxy settings
+cat << EOF > /etc/nginx/conf.d/uploadsize.conf
+client_max_body_size 20M;
+proxy_request_buffering off;
+EOF
+cat << EOF > /etc/nginx/sites-enabled/meilisearch
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    location / {
+        proxy_pass  http://127.0.0.1:7700;
+    }
+    location /search {
+        proxy_pass  http://127.0.0.1/;
+    }
+}
+EOF
+
+# Reload the operating system daemons / services
+systemctl daemon-reload
+
+# Enable and start Nginx service
+systemctl enable nginx
+systemctl restart nginx
+
+# Install cloudwatch log agent
+wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/amazon-cloudwatch-agent.deb
+dpkg -i /tmp/amazon-cloudwatch-agent.deb
+
+cat << EOF > /opt/aws/amazon-cloudwatch-agent/bin/config.json
+{
+  "agent": {
+    "metrics_collection_interval": 10,
+    "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+              "file_path": "/var/log/meilisearch/access.log",
+              "log_group_name":  "${log_group}",
+              "log_stream_name": "{ip_address}_{instance_id}",
+              "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
+              "timezone": "Local"
+          },
+          {
+            "file_path": "/var/log/meilisearch/error.log",
+            "log_group_name":  "${log_group}",
+            "log_stream_name": "{ip_address}_{instance_id}",
+            "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
+            "timezone": "Local"
+        }
+        ]
+      }
+    }
+  }
+}
+EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status

@@ -1,8 +1,6 @@
 package traveloffice.mail.services
 
 import com.amazonaws.services.kms.model.NotFoundException
-import com.google.gson.Gson
-import com.google.gson.GsonBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -13,7 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Service
-import tech.blueglacier.email.EmailAttachment
+import traveloffice.mail.MailApplication
 import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DELETE
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DRAFT
@@ -26,6 +24,7 @@ import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
+import traveloffice.mail.common.GracefulAction
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
@@ -192,6 +191,8 @@ class MailService {
                         syncStatus.uid = message.uid!!
                         syncStatus.messageNumber = message.raw!!.messageNumber
                         try {
+                            if(GracefulAction.interrupted)
+                                throw Exception("Interrupt received! Exiting parse mail message immediately")
                             mailRepository.parseMailMessage(mailAccount, message)
                             // Save the emails information to database
                             mailRepository.saveEmail(mailAccount, mailBox.name, message)
@@ -277,6 +278,8 @@ class MailService {
         } finally {
             // Change status of mailbox
             this.mailRepository.changeMailBoxStatus(mailBox, mailBoxSyncStatus)
+            // Replicate email to search engine to prevent missing search items
+            this.mailRepository.replicateEmailToSearchEngine(mailAccount)
         }
     }
 

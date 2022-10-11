@@ -9,6 +9,17 @@ variable "AWS_REGION" {}
 variable "TAGS" {}
 
 
+resource "aws_cloudwatch_log_group" "task_log" {
+  name_prefix       = "mail/${var.TASK_NAME}/queue"
+  retention_in_days = var.ENV == "dev" ? 1 : 7
+
+  tags = var.TAGS
+}
+
+data "aws_arn" "task_log" {
+  arn = aws_cloudwatch_log_group.task_log.arn
+}
+
 resource "aws_ecs_task_definition" "task" {
   family                   = var.TASK_NAME
   requires_compatibilities = ["FARGATE"]
@@ -36,13 +47,13 @@ resource "aws_ecs_task_definition" "task" {
         name  = k
         value = v
       }]
+      stopTimeout = 120
       logConfiguration = {
         logDriver     = "awslogs",
         secretOptions = null,
         options = {
-          awslogs-group         = "/ecs/${var.TASK_NAME}",
+          awslogs-group         = substr(data.aws_arn.task_log.resource, length("log-group:"), -1),
           awslogs-region        = "${var.AWS_REGION}",
-          awslogs-create-group  = "true",
           awslogs-stream-prefix = "ecs"
         }
       }

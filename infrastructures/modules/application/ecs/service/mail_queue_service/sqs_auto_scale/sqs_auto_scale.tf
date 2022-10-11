@@ -24,7 +24,7 @@ resource "aws_appautoscaling_policy" "initial-by-queue-metric" {
 
   step_scaling_policy_configuration {
     cooldown                = 60
-    adjustment_type         = "ChangeInCapacity"
+    adjustment_type         = "ExactCapacity"
     metric_aggregation_type = "Average"
 
     step_adjustment {

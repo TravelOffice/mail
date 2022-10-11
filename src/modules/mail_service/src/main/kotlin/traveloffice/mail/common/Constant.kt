@@ -2,6 +2,7 @@ package traveloffice.mail.common
 
 class Constant {
     companion object {
+        const val MAIL_INDEX = "MAIL"
         const val TENANT_INDEX = "TENANT"
         const val MAILBOX_INDEX = "MAILBOX"
         const val MAIL_ACCOUNT_INDEX = "MAIL_ACCOUNT"

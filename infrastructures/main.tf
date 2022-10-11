@@ -20,7 +20,8 @@ locals {
     Feature   = var.FEATURE_NAME
   }
 
-  MESSAGE_PER_TASK = 5
+  MESSAGE_PER_TASK        = 5
+  MEILI_SEARCH_MASTER_KEY = "ec03c020-4a0f-11ed-b878-0242ac120002"
 }
 
 module "REMOTE_STATE" {
@@ -35,8 +36,8 @@ module "MAIL_LOAD_BALANCER" {
   source       = "../../modules/application/alb"
   ENV          = var.ENV
   FEATURE_NAME = var.FEATURE_NAME
-  SUBNETS      = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.vpc.public_subnets
-  VPC_ID       = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.vpc.id
+  SUBNETS      = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.public_subnets
+  VPC_ID       = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
   DOMAIN_ARN   = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.arn
   TAGS         = local.tags
 }
@@ -62,13 +63,17 @@ module "ECS" {
       MAIL_MAX_MESSAGE_PER_SERVICE_TASK = tostring(local.MESSAGE_PER_TASK)
     }
   )
-  TAGS                    = local.tags
-  AWS_REGION              = var.AWS_REGION
-  SUBNETS                 = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.vpc.public_subnets
-  VPC_ID                  = module.REMOTE_STATE.STATE.BASE_INFRASTRUCTURE.backend.vpc.id
-  MAIL_TARGET_GROUP_ARN   = module.MAIL_LOAD_BALANCER.mail_lb_target_group_arn
-  MAIL_SERVICE_QUEUE_NAME = module.MAIL_QUEUE.mail_queue_name
-  MESSAGE_PER_TASK        = local.MESSAGE_PER_TASK
+  TAGS                     = local.tags
+  AWS_REGION               = var.AWS_REGION
+  PUBLIC_SUBNETS           = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.public_subnets
+  PRIVATE_SUBNETS          = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.private_subnets
+  VPC_ID                   = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
+  MAIL_TARGET_GROUP_ARN    = module.MAIL_LOAD_BALANCER.mail_lb_target_group_arn
+  SEARCH_TARGET_GROUP_ARN  = module.MAIL_LOAD_BALANCER.search_lb_target_group_arn
+  MAIL_SERVICE_QUEUE_NAME  = module.MAIL_QUEUE.mail_queue_name
+  MESSAGE_PER_TASK         = local.MESSAGE_PER_TASK
+  MEILI_SEARCH_MASTER_KEY  = local.MEILI_SEARCH_MASTER_KEY
+  MEILI_SEARCH_DATA_VOLUME = module.REMOTE_STATE.STATE.MARKETING.search.volume_id
 }
 
 resource "aws_route53_record" "mail_domain" {
@@ -99,4 +104,12 @@ module "APPSYNC_CONFIGURATION" {
   MAIL_QUEUE_ARN    = module.MAIL_QUEUE.mail_queue_arn
   MAIL_QUEUE_URL    = module.MAIL_QUEUE.mail_queue_url
   TAGS              = local.tags
+}
+
+// Add value to secret manager
+module "SECRET_MANAGER" {
+  source                   = "../../modules/application/secret"
+  SECRET_MANAGER_ID        = module.REMOTE_STATE.STATE.MARKETING.backend.secret_manager.id
+  SEARCH_ENGINE_ENDPOINT   = "${aws_route53_record.mail_domain.fqdn}/search"
+  SEARCH_ENGINE_MASTER_KEY = local.MEILI_SEARCH_MASTER_KEY
 }

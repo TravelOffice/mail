@@ -13,3 +13,4 @@ data class ChangeMailboxRequestBody(
     @field:Email @field:NotNull val mail: String,
     @field:EmailMessagesList @field:NotEmpty @JsonProperty("messages") val messages: List<String>?
 )
+
