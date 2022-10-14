@@ -53,9 +53,20 @@ class S3Provider(region: String) {
     fun generatePresignedUrl(generatePresignedUrlRequest: GeneratePresignedUrlRequest): URL = this.s3Client.generatePresignedUrl(generatePresignedUrlRequest)
 
     /**
-     * Copy object [copyObjectRequest] then return [CopyObjectResult] object
+     * Copy object [sourceKey] of [bucket] to [destinationKey] of [bucket] and set [mimeType], [encoding] for new object
      */
-    private fun copyObject(copyObjectRequest: CopyObjectRequest): CopyObjectResult = this.s3Client.copyObject(copyObjectRequest)
+    fun copyObject(bucket: String, sourceKey: String, destinationKey: String, mimeType: String, encoding: String): CopyObjectResult {
+        val metadata = ObjectMetadata()
+        metadata.contentType = mimeType
+        metadata.contentEncoding = encoding
+        val copyObjectRequest = CopyObjectRequest()
+            .withSourceBucketName(bucket)
+            .withSourceKey(sourceKey)
+            .withDestinationBucketName(bucket)
+            .withDestinationKey(destinationKey)
+            .withNewObjectMetadata(metadata)
+        return this.s3Client.copyObject(copyObjectRequest);
+    };
 
     /**
      * Delete object with information in [deleteObjectRequest]
@@ -66,16 +77,7 @@ class S3Provider(region: String) {
      * Move object [sourceKey] of [bucket] to [destinationKey] of [bucket] and set [mimeType], [encoding] for new object
      */
     fun moveObject(bucket: String, sourceKey: String, destinationKey: String, mimeType: String, encoding: String) {
-        val metadata = ObjectMetadata()
-        metadata.contentType = mimeType
-        metadata.contentEncoding = encoding
-        val copyObjectRequest = CopyObjectRequest()
-            .withSourceBucketName(bucket)
-            .withSourceKey(sourceKey)
-            .withDestinationBucketName(bucket)
-            .withDestinationKey(destinationKey)
-            .withNewObjectMetadata(metadata)
-        this.copyObject(copyObjectRequest)
+        this.copyObject(bucket, sourceKey, destinationKey, mimeType, encoding);
         val deleteObjectRequest = DeleteObjectRequest(bucket, sourceKey)
         this.deleteObject(deleteObjectRequest)
     }
