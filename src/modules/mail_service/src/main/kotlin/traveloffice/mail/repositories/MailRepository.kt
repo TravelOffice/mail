@@ -808,7 +808,11 @@ class MailRepository {
         // Move attachments
         mailMessage.attachments?.forEach {
             val attachmentObjectKey = "${tenantKeyPrefix}/${it.name}"
-            this.s3Provider.moveObject(mailBucket, it.path, attachmentObjectKey, it.mimeType, it.encoding)
+            if (it.path.contains(S3_TEMPORARY_UPLOAD_FOLDER)) {
+                this.s3Provider.moveObject(mailBucket, it.path, attachmentObjectKey, it.mimeType, it.encoding)
+            } else {
+                this.s3Provider.copyObject(mailBucket, it.path, attachmentObjectKey, it.mimeType, it.encoding)
+            }
             it.path = attachmentObjectKey.encodeToURL()
             mailMessage.size += this.s3Provider.getObjectSize(mailBucket, attachmentObjectKey)
         }
