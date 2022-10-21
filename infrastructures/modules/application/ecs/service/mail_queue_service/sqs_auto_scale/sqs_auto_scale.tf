@@ -23,8 +23,8 @@ resource "aws_appautoscaling_policy" "initial-by-queue-metric" {
   service_namespace  = aws_appautoscaling_target.target.service_namespace
 
   step_scaling_policy_configuration {
-    cooldown                = 60
-    adjustment_type         = "ChangeInCapacity"
+    cooldown                = 10
+    adjustment_type         = "ExactCapacity"
     metric_aggregation_type = "Average"
 
     step_adjustment {
@@ -53,7 +53,7 @@ resource "aws_appautoscaling_policy" "scaling-high-by-queue-metric" {
   service_namespace  = aws_appautoscaling_target.target.service_namespace
 
   step_scaling_policy_configuration {
-    cooldown                = 60
+    cooldown                = 10
     adjustment_type         = "PercentChangeInCapacity"
     metric_aggregation_type = "Average"
 
@@ -107,7 +107,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_low" {
     metric {
       metric_name = "ApproximateNumberOfMessagesVisible"
       namespace   = "AWS/SQS"
-      period      = "60"
+      period      = "10"
       stat        = "Maximum"
 
       dimensions = {
@@ -122,7 +122,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_low" {
     metric {
       metric_name = "ApproximateNumberOfMessagesNotVisible"
       namespace   = "AWS/SQS"
-      period      = "60"
+      period      = "10"
       stat        = "Maximum"
 
       dimensions = {
@@ -157,7 +157,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_pending_message" {
     metric {
       metric_name = "ApproximateNumberOfMessagesVisible"
       namespace   = "AWS/SQS"
-      period      = "60"
+      period      = "10"
       stat        = "Maximum"
 
       dimensions = {
@@ -172,7 +172,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_pending_message" {
     metric {
       metric_name = "ApproximateNumberOfMessagesNotVisible"
       namespace   = "AWS/SQS"
-      period      = "60"
+      period      = "10"
       stat        = "Maximum"
 
       dimensions = {
@@ -187,7 +187,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_pending_message" {
     metric {
       metric_name = "RunningTaskCount"
       namespace   = "ECS/ContainerInsights"
-      period      = "60"
+      period      = "10"
       stat        = "Maximum"
 
       dimensions = {

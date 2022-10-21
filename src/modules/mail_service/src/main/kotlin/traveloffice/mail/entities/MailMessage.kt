@@ -4,7 +4,12 @@ import com.amazonaws.services.dynamodbv2.datamodeling.*
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
+import traveloffice.mail.common.Constant
+import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
+import traveloffice.mail.entities.search.MailMessageSearch
 import traveloffice.mail.extensions.toCDNUrl
+import traveloffice.mail.extensions.toList
+import traveloffice.mail.extensions.toSearchIndex
 import java.io.InputStream
 import javax.mail.Flags
 import javax.mail.Message
@@ -46,6 +51,9 @@ class MailMessage : BaseModel() {
 
     @DynamoDBIgnore
     var rawHtmlContent: MailAttachment? = null
+
+    @DynamoDBIgnore
+    var plainTextContent: String? = null
 
     @DynamoDBIgnore
     var rawCalendarEvent: MailAttachment? = null
@@ -91,6 +99,9 @@ class MailMessage : BaseModel() {
 
     @DynamoDBAttribute(attributeName = "uid")
     var uid: String? = null
+
+    @DynamoDBIgnore
+    lateinit var mailbox: String
 
     val fromAsInternetAddress: InternetAddress
         @DynamoDBIgnore
@@ -153,6 +164,23 @@ class MailMessage : BaseModel() {
             return@map it
         }
         return newMessage.toJson()
+    }
+
+    fun toSearchEntity(): MailMessageSearch {
+        return MailMessageSearch(
+            this.messageId.toSearchIndex(),
+            this.messageId,
+            this.mailbox,
+            this.from,
+            this.to.rawAddress,
+            this.cc?.rawAddress,
+            this.bcc?.rawAddress,
+            this.subject,
+            this.plainTextContent,
+            this.attachments?.map { it.name },
+            this.sentDate,
+            this.flags.toList()
+        )
     }
 
     // Converts the complex type FlagType to a string and vice-versa.

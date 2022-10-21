@@ -1,5 +1,6 @@
 package traveloffice.mail.controllers
 
+import com.amazonaws.services.kms.model.NotFoundException
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -17,6 +18,7 @@ import traveloffice.mail.entities.ResponseBody
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
+import traveloffice.mail.repositories.MailRepository
 import traveloffice.mail.services.MailService
 import java.util.function.Consumer
 import javax.validation.ConstraintViolationException
@@ -31,6 +33,9 @@ import javax.validation.constraints.NotEmpty
 class MailController {
     @Autowired
     lateinit var mailService: MailService
+
+    @Autowired
+    lateinit var mailRepository: MailRepository
 
     @GetMapping("/healthcheck")
     fun healthCheck(): ResponseEntity<String> {
@@ -49,7 +54,10 @@ class MailController {
     }
 
     @GetMapping("/presigned-url")
-    fun getPresignedUrl(@RequestParam @NotEmpty fileName: String, @RequestParam @NotEmpty contentType: String): ResponseEntity<ResponseBody<PresignedUrlResponsePayload>> {
+    fun getPresignedUrl(
+        @RequestParam @NotEmpty fileName: String,
+        @RequestParam @NotEmpty contentType: String
+    ): ResponseEntity<ResponseBody<PresignedUrlResponsePayload>> {
         val presignedUrl = mailService.generatePresignedUrl(fileName, contentType)
         return ResponseEntity.ok(
             ResponseBody(

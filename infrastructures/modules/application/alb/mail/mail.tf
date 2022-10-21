@@ -7,7 +7,7 @@ variable "TAGS" {}
 
 module "MAIL_ALB" {
   source  = "terraform-aws-modules/alb/aws"
-  version = "~> 6.0"
+  version = "8.1.0"
 
   name = var.LB_NAME
 
@@ -24,11 +24,29 @@ module "MAIL_ALB" {
       backend_port     = 80
       target_type      = "ip"
       health_check = {
-        healthy_threshold   = 3
+        healthy_threshold   = 2
         matcher             = "200"
-        unhealthy_threshold = 2
-        interval            = 60
+        unhealthy_threshold = 3
+        interval            = 30
         path                = "/healthcheck"
+      }
+      stickiness = {
+        enabled = false
+        type    = "lb_cookie"
+      }
+    },
+    {
+      name_prefix          = "Search"
+      backend_protocol     = "HTTP"
+      backend_port         = 80
+      target_type          = "instance"
+      deregistration_delay = 60
+      health_check = {
+        healthy_threshold   = 2
+        matcher             = "200"
+        unhealthy_threshold = 3
+        interval            = 60
+        path                = "/health"
       }
       stickiness = {
         enabled = false
@@ -43,6 +61,45 @@ module "MAIL_ALB" {
       protocol           = "HTTPS"
       certificate_arn    = var.DOMAIN_ARN
       target_group_index = 0
+    }
+  ]
+
+  https_listener_rules = [
+    {
+      https_listener_index = 0
+      actions = [
+        {
+          type               = "forward"
+          target_group_index = 1
+        }
+      ]
+      conditions = [
+        {
+          path_patterns = [
+            "/search",
+            "/search/*",
+            "/static/*",
+            "/manifest.json",
+          ]
+        }
+      ]
+    },
+    {
+      https_listener_index = 0
+      actions = [
+        {
+          type               = "forward"
+          target_group_index = 1
+        }
+      ]
+      conditions = [
+        {
+          http_headers = [{
+            http_header_name = "x-meilisearch-client"
+            values           = ["*"]
+          }]
+        }
+      ]
     }
   ]
 
@@ -77,4 +134,8 @@ output "mail_lb_dns" {
 
 output "mail_lb_target_group_arn" {
   value = module.MAIL_ALB.target_group_arns[0]
+}
+
+output "search_lb_target_group_arn" {
+  value = module.MAIL_ALB.target_group_arns[1]
 }

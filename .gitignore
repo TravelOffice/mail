@@ -10,3 +10,4 @@
 *.lock*
 infrastructures/environments/**/main.tf
 infrastructures/environments/**/output.tf
+infrastructures/environments/**/serverless.auto.tfvars

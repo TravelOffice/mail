@@ -45,21 +45,23 @@ import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_CONTEXT
 import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_SUBJECT
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.entities.*
+import traveloffice.mail.entities.search.MailMessageSearch
+import traveloffice.mail.entities.search.MailMessageSearchRequest
 import traveloffice.mail.exceptions.MailAccountWasLinked
 import traveloffice.mail.exceptions.S3DownloadFileException
 import traveloffice.mail.exceptions.UnSupportedInboxType
 import traveloffice.mail.extensions.decrypt
 import traveloffice.mail.extensions.encodeToURL
 import traveloffice.mail.extensions.encrypt
-import traveloffice.mail.providers.AppSyncProvider
-import traveloffice.mail.providers.MailProviderFactory
-import traveloffice.mail.providers.S3Provider
-import traveloffice.mail.providers.SMTPProvider
+import traveloffice.mail.extensions.toSearchIndex
+import traveloffice.mail.providers.*
 import traveloffice.mail.services.SecretManagerService
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.URLDecoder
 import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -90,6 +92,9 @@ class MailRepository {
 
     @Autowired
     lateinit var smtpProvider: SMTPProvider
+
+    @Autowired
+    lateinit var meiliSearchProvider: MeiliSearchProvider
 
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
@@ -155,7 +160,15 @@ class MailRepository {
         // Create the mail message information
         mailMessage.messageId = mailProvider.getMessageId(message)
         mailMessage.plainTextEmailBody = email.plainTextEmailBody?.`is`
-        mailMessage.rawHtmlContent = getHtmlContentFromEmail(email.htmlEmailBody)
+        if (email.htmlEmailBody != null)
+            mailMessage.rawHtmlContent = getHtmlContentFromEmail(email.htmlEmailBody)
+        else if (email.plainTextEmailBody != null) {
+            // Convert plain text to html content
+            val stringContent = String(email.plainTextEmailBody.`is`.readAllBytes())
+            val stringContentAsHtml = stringContent.replace(Regex("(\r\n|\n)"), "<br>")
+            email.plainTextEmailBody.`is` = stringContentAsHtml.byteInputStream()
+            mailMessage.rawHtmlContent = getHtmlContentFromEmail(email.plainTextEmailBody)
+        }
         mailMessage.rawCalendarEvent = getCalendarEventFromEmail(email.calendarBody)
         mailMessage.receivedDate = message.receivedDate?.time
         mailMessage.sentDate = message.sentDate?.time
@@ -419,6 +432,7 @@ class MailRepository {
             "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}#${mailBoxName}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
         mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBoxName}#${mailMessage.sentDate}"
+        mailMessage.mailbox = mailBoxName
 
         val rawHtmlContent = mailMessage.rawHtmlContent
         if (mailMessage.htmlContent == "" && rawHtmlContent != null) {
@@ -446,33 +460,13 @@ class MailRepository {
             calendarEmailEvent.inputStream = ByteArrayInputStream(byteArrayOutputStream.toByteArray())
         }
         // Get the brief content of the message
-        var briefContent = ""
-        try {
-            val rawHtmlContentIs = mailMessage.rawHtmlContent?.inputStream
-            val calendarEmailEventIs = mailMessage.rawCalendarEvent?.inputStream
-            var stringContent = ""
-            if (rawHtmlContentIs != null) {
-                // Parse brief content from html content
-                val doc = Jsoup.parse(rawHtmlContentIs, StandardCharsets.UTF_8.toString(), "")
-                stringContent = IOUtils.toString(doc.text().byteInputStream(), StandardCharsets.UTF_8).trim()
-            } else if (calendarEmailEventIs != null) {
-                // Parse brief content from calendar content
-                val builder = CalendarBuilder()
-                val calendar = builder.build(calendarEmailEventIs)
-                stringContent = (calendar.components.first() as VEvent).description.value
-            }
-            val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
-            briefContent = stringContent
-                .substring(0, defaultBriefContentSize.coerceAtMost(stringContent.length))
-                .replace("\n", "")
-                .replace("\r", "")
-        } catch (e: IOException) {
-            logger.error("Cannot get brief content of message [${mailMessage.messageId}]")
-        } catch (e: ParserException) {
-            logger.error("Cannot get brief content of message [${mailMessage.messageId}] wrong calendar event")
-        }
-
-        mailMessage.briefContent = briefContent
+        val defaultBriefContentSize = this.secretManagerService.getEnv("MAX_MESSAGE_BRIEF_CONTENT_SIZE").toInt()
+        val stringContent = getStringContentFromEmail(mailMessage)
+        mailMessage.plainTextContent = stringContent
+        mailMessage.briefContent = stringContent
+            .substring(0, defaultBriefContentSize.coerceAtMost(stringContent.length))
+            .replace("\n", "")
+            .replace("\r", "")
 
         // Save the metadata
         val metaData = MailMessageMetaData(
@@ -482,7 +476,12 @@ class MailRepository {
         )
         mailMessage.metaData = storeMetaData(mailAccount, mailMessage.messageId, metaData)
 
-        return this.dynamoDBMapper.save(mailMessage)
+        // Save to database
+        this.dynamoDBMapper.save(mailMessage)
+
+        // Start save to search database
+        val mailMessageSearch = mailMessage.toSearchEntity()
+        meiliSearchProvider.addDocuments(mailAccount.searchIndex, mailMessageSearch.toJsonString())
     }
 
     /**
@@ -570,7 +569,7 @@ class MailRepository {
      *
      * @param mailAccount: The mailbox information.
      * @param messageId: The message Id.
-     * @param attachment: The attachment information
+     * @param mailMetaData: The attachment information
      *
      * @return The path of attachment which saved to the local storage
      * @exception
@@ -750,8 +749,6 @@ class MailRepository {
             val mailBox = MailBox()
             mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#$MAILBOX_INDEX"
             mailBox.sk = "$MAILBOX_INDEX#$name"
-            mailBox.count = 0
-            mailBox.unread = 0
             mailBox.order = index
             this.dynamoDBMapper.save(mailBox)
         }
@@ -761,8 +758,14 @@ class MailRepository {
         // Set tenant, username for mail account
         mailAccount.tenant = authenticatedUser.tenant
         mailAccount.username = authenticatedUser.username
+        //Create mail message search index
+        val messageIndex = "${userPk}#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#${MESSAGE_INDEX}".toSearchIndex()
+        mailAccount.searchIndex = messageIndex
         // Save mail account information to dynamodb
         this.dynamoDBMapper.save(mailAccount)
+        // Create the search engine index
+        this.meiliSearchProvider.createOrUpdateIndex(messageIndex, MailMessageSearch.IndexConfig().defaultSetting())
+
         logger.info("Save mail account ${mailAccount.email} to dynamodb successfully")
     } catch (e: Exception) {
         logger.error(e.toString())
@@ -845,13 +848,20 @@ class MailRepository {
         username: String,
         mail: String,
         mailBox: String,
-        lastEvaluatedKeyString: String? = null
+        lastEvaluatedKeyString: String? = null,
+        limit: Int = DEFAULT_NUMBER_OF_MAILS_TO_FETCH,
+        sortMode: String = "DESC",
+        date: Long? = null
     ): Pair<String, MutableList<MailMessage>> {
         // Pk, sk
         val uppercaseMailBox = mailBox.uppercase()
         val pk =
             "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#${uppercaseMailBox}"
-        val sk = "$MAILBOX_INDEX#${uppercaseMailBox}"
+        val sk = if (date == null) {
+            "$MAILBOX_INDEX#${uppercaseMailBox}"
+        } else {
+            "$MAILBOX_INDEX#${uppercaseMailBox}#${date}"
+        }
         // Build expression attribute values. Then, make query expression
         val eav: Map<String, AttributeValue> = hashMapOf(
             ":pk" to AttributeValue().withS(pk),
@@ -867,12 +877,17 @@ class MailRepository {
                     )
                 )
         }
+        val keyConditionExpression = if (date == null) {
+            "pk = :pk and begins_with(lsi1, :lsi1)"
+        } else {
+            "pk = :pk and lsi1 > :lsi1"
+        }
         val queryExpression = DynamoDBQueryExpression<MailMessage>()
             .withIndexName("Index1") // Index for sorting
-            .withKeyConditionExpression("pk = :pk and begins_with(lsi1, :lsi1)")
-            .withScanIndexForward(false) // DESC sk
+            .withKeyConditionExpression(keyConditionExpression)
+            .withScanIndexForward(sortMode == "ASC") // DESC sk
             .withExclusiveStartKey(lastEvaluatedKey)
-            .withLimit(DEFAULT_NUMBER_OF_MAILS_TO_FETCH) // Limit number of mails returned
+            .withLimit(limit) // Limit number of mails returned
             .withExpressionAttributeValues(eav)
 
         val result = this.dynamoDBMapper.queryPage(MailMessage::class.java, queryExpression)
@@ -951,5 +966,132 @@ class MailRepository {
 
         // Batch write list of messages to new mailbox partition
         this.dynamoDBMapper.batchSave(newMailMessages)
+    }
+
+    /**
+     * Replicate email from [mailAccount] to search engine to prevent missing search items
+     * Do following steps:
+     * - Batch load message items
+     * - Batch write message items to search engine
+     */
+    fun replicateEmailToSearchEngine(mailAccount: MailAccount) {
+        val tenant = mailAccount.tenant
+        val username = mailAccount.username
+        val email = mailAccount.email
+
+        logger.info(
+            "Replicating email from database to search engine " +
+                    "from Tenant [$tenant] User [$username] " +
+                    "Mail Account [$email] "
+        )
+
+        val mailBoxes = this.getMailBoxes(tenant, username, email)
+        mailBoxes.forEach {
+            val (_, lastMessages) = this.getMailsInsideMailBox(tenant, username, email, it.name, null, 1)
+            // If first sync, do nothing
+            if (lastMessages.isEmpty())
+                return@forEach
+            // Get the last sync item from search engine
+            val searchResult =
+                this.meiliSearchProvider.search(
+                    mailAccount.searchIndex,
+                    MailMessageSearchRequest("", 0, 1, listOf("date"), listOf("date:desc"), listOf("box = ${it.name}"))
+                )
+            // Not found any message in search engine, going to replicate all message to search engine
+            var lastEvaluatedKey: String? = null
+            do {
+                val (token, messages) = if (searchResult == null || searchResult.hits.isNullOrEmpty())
+                    this.getMailsInsideMailBox(tenant, username, email, it.name, lastEvaluatedKey, sortMode = "ASC")
+                else {
+                    val searchEngineLastSyncTime = (searchResult.hits.first()["date"] as Double).toLong()
+                    val lastSyncTime = lastMessages.first().sentDate
+                    if (searchEngineLastSyncTime >= lastSyncTime!!)
+                        return@forEach
+                    this.getMailsInsideMailBox(
+                        tenant,
+                        username,
+                        email,
+                        it.name,
+                        lastEvaluatedKey,
+                        sortMode = "ASC",
+                        date = searchEngineLastSyncTime
+                    )
+                }
+                lastEvaluatedKey = (if (token != "null") token else null)
+                val mailMessagesSearch = messages.map { message ->
+                    message.mailbox = it.name
+                    return@map toMailMessageSearch(message).toJsonString()
+                }
+                this.meiliSearchProvider.addDocuments(mailAccount.searchIndex, mailMessagesSearch.toString())
+                logger.info(
+                    "Mailbox [${it.name}] Replicated ${mailMessagesSearch.size} email from database to search engine " +
+                            "from Tenant [$tenant] User [$username] " +
+                            "Mail Account [$email] "
+                )
+            } while (lastEvaluatedKey != null)
+        }
+        logger.info(
+            "Replicated email from database to search engine " +
+                    "from Tenant [$tenant] User [$username] " +
+                    "Mail Account [$email] "
+        )
+    }
+
+    private fun getStringContentFromEmail(mailMessage: MailMessage): String {
+        // Get the brief content of the message
+        var stringContent = ""
+        try {
+            val rawHtmlContentIs = mailMessage.rawHtmlContent?.inputStream
+            val calendarEmailEventIs = mailMessage.rawCalendarEvent?.inputStream
+            if (rawHtmlContentIs != null) {
+                // Parse brief content from html content
+                val doc = Jsoup.parse(rawHtmlContentIs, StandardCharsets.UTF_8.toString(), "")
+                stringContent = IOUtils.toString(doc.text().byteInputStream(), StandardCharsets.UTF_8).trim()
+            } else if (calendarEmailEventIs != null) {
+                // Parse brief content from calendar content
+                val builder = CalendarBuilder()
+                val calendar = builder.build(calendarEmailEventIs)
+                stringContent = (calendar.components.first() as VEvent).description.value
+            }
+
+        } catch (e: IOException) {
+            logger.error("Cannot get brief content of message [${mailMessage.messageId}]")
+        } catch (e: ParserException) {
+            logger.error("Cannot get brief content of message [${mailMessage.messageId}] wrong calendar event")
+        }
+        return stringContent
+    }
+
+    private fun toMailMessageSearch(mailMessage: MailMessage): MailMessageSearch {
+        if (mailMessage.htmlContent != "") {
+            mailMessage.rawHtmlContent = MailAttachment.Builder()
+                .withInputStream(getObjectFromS3(URLDecoder.decode(mailMessage.htmlContent, Charset.defaultCharset())))
+                .build()
+        }
+        if (mailMessage.calendarEvent != "") {
+            mailMessage.rawCalendarEvent = MailAttachment.Builder()
+                .withInputStream(
+                    getObjectFromS3(
+                        URLDecoder.decode(
+                            mailMessage.calendarEvent,
+                            Charset.defaultCharset()
+                        )
+                    )
+                )
+                .build()
+        }
+
+        if (mailMessage.metaData != "") {
+            val rawMetaData = getObjectFromS3(URLDecoder.decode(mailMessage.metaData, Charset.defaultCharset()))
+            val metaData = Gson().fromJson(String(rawMetaData.readAllBytes()), MailMessageMetaData::class.java)
+            mailMessage.to.rawAddress = metaData.to
+            if (mailMessage.cc != null && metaData.cc != null)
+                mailMessage.cc!!.rawAddress = metaData.cc!!
+            if (mailMessage.bcc != null && metaData.bcc != null)
+                mailMessage.bcc!!.rawAddress = metaData.bcc!!
+        }
+        mailMessage.plainTextContent = getStringContentFromEmail(mailMessage)
+
+        return mailMessage.toSearchEntity()
     }
 }

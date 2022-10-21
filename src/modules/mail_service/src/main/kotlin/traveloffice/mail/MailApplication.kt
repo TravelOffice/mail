@@ -12,8 +12,10 @@ import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Profile
 import org.springframework.web.servlet.config.annotation.CorsRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
+import traveloffice.mail.common.GracefulAction
 import traveloffice.mail.entities.MailMessageQueueAction
 import traveloffice.mail.entities.MailMessageQueueEvent
 import traveloffice.mail.exceptions.MalformedMessageEventData
@@ -21,6 +23,7 @@ import traveloffice.mail.exceptions.UnSupportedEvent
 import traveloffice.mail.services.MailMessageQueueService
 import traveloffice.mail.services.MailService
 import traveloffice.mail.services.SecretManagerService
+import javax.annotation.PreDestroy
 
 
 @SpringBootApplication
@@ -36,6 +39,9 @@ class MailApplication : ApplicationRunner {
 
     var logger: Logger = LoggerFactory.getLogger(MailApplication::class.java)
 
+    var isMailQueueTask: Boolean = false
+
+    @Profile("mail_api")
     @Bean
     fun corsConfigurer(): WebMvcConfigurer? {
         return object : WebMvcConfigurer {
@@ -46,7 +52,7 @@ class MailApplication : ApplicationRunner {
     }
 
     override fun run(arg0: ApplicationArguments?) {
-        val isMailQueueTask = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
+        isMailQueueTask = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
         if (isMailQueueTask) {
             val maxMessagePerTask = secretManagerService.getEnv("MAIL_MAX_MESSAGE_PER_SERVICE_TASK").toInt()
             runBlocking {
@@ -56,12 +62,15 @@ class MailApplication : ApplicationRunner {
                     }
                 }
             }
+            if (GracefulAction.interrupted)
+                GracefulAction.tasksFinished = true
         }
     }
 
     private suspend fun pollMessageQueueEvent() {
         while (true) {
             try {
+                if (GracefulAction.interrupted) return
                 val messages = this.messageQueueService.receiveMessage(maxNumberOfMessages = 1)
                 if (!messages.isNullOrEmpty()) {
                     logger.info(
@@ -110,6 +119,21 @@ class MailApplication : ApplicationRunner {
             this.messageQueueService.deleteMessage(event.receiptHandle).also {
                 logger.info("Handler Mail Message: Deleted message from message queue: ${Gson().toJson(event)}")
             }
+        }
+    }
+
+    @PreDestroy
+    fun preDestroy() {
+        if (isMailQueueTask) {
+            logger.warn(
+                "Interrupt received. Please wait for Mail Task to exit or data loss may occur.\n Gracefully shutting down..."
+            )
+            GracefulAction.interrupted = true
+            while (!GracefulAction.tasksFinished) {
+                // Wait for mail task completing its work
+                Thread.sleep(1000)
+            }
+            logger.warn("All task are finished, going to shutdown!")
         }
     }
 }

@@ -110,4 +110,8 @@ class MailAccount : BaseModel() {
     @Expose
     @DynamoDBAttribute(attributeName = "username")
     lateinit var username: String
+
+    @Expose
+    @DynamoDBAttribute(attributeName = "searchIndex")
+    lateinit var searchIndex: String
 }
