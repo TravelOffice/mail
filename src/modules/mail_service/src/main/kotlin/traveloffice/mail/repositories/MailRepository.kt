@@ -10,7 +10,9 @@ import com.amazonaws.services.dynamodbv2.model.AttributeAction
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest
+import com.amazonaws.services.kms.model.NotFoundException
 import com.amazonaws.services.s3.model.*
+import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
 import com.google.gson.Gson
 import net.fortuna.ical4j.data.CalendarBuilder
 import net.fortuna.ical4j.data.ParserException
@@ -918,8 +920,18 @@ class MailRepository {
 
         // Insert the new one
         newMailMessage.pk = "$pkWithoutMailbox$to"
-        newMailMessage.lsi1 = newMailMessage.lsi1?.replace(from.uppercase(), to.uppercase())
+        newMailMessage.sk = sk
+        newMailMessage.lsi1 = mailMessage.lsi1?.replace(from.uppercase(), to.uppercase())
         this.dynamoDBMapper.save(newMailMessage)
+
+        // Update search engine items
+        val mailAccount = this.getMailAccount(tenant, username, mail)
+            ?: throw NotFoundException("Mail account [$mail] not found!, tenant [$tenant] username [$username]")
+        val searchUpdateMessage = listOf(mapOf(
+            "id" to newMailMessage.messageId.toSearchIndex(),
+            "box" to to
+        ))
+        this.meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
     }
 
     /**
@@ -928,6 +940,7 @@ class MailRepository {
      * - Batch load message items
      * - Batch delete message items from old partition belongs to old mailbox [from]
      * - Batch write message items to new partition belongs to new mailbox [to]
+     * - Batch update the mailbox of message items from search engine
      */
     fun changeMailboxOfMessages(
         tenant: String,
@@ -937,6 +950,10 @@ class MailRepository {
         mail: String,
         messages: List<String>
     ) {
+        // Verify account exists
+        val mailAccount = this.getMailAccount(tenant, username, mail)
+            ?: throw NotFoundException("Mail account [$mail] not found!, tenant [$tenant] username [$username]")
+
         // Query mail messages
         val pkWithoutMailbox =
             "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#"
@@ -957,7 +974,8 @@ class MailRepository {
         val newMailMessages = messagesToUpdate.map {
             val mailMessageObj = (it as MailMessage).clone()
             mailMessageObj.pk = "$pkWithoutMailbox$to"
-            mailMessageObj.lsi1 = mailMessageObj.lsi1?.replace(from.uppercase(), to.uppercase())
+            mailMessageObj.sk = it.sk
+            mailMessageObj.lsi1 = it.lsi1?.replace(from.uppercase(), to.uppercase())
             return@map mailMessageObj
         }
 
@@ -966,6 +984,15 @@ class MailRepository {
 
         // Batch write list of messages to new mailbox partition
         this.dynamoDBMapper.batchSave(newMailMessages)
+
+        // Batch update search engine items
+        val searchUpdateMessage = messagesToUpdate.map {
+            return@map mapOf(
+                "id" to (it as MailMessage).messageId.toSearchIndex(),
+                "box" to to
+            )
+        }
+        this.meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
     }
 
     /**
@@ -1034,6 +1061,71 @@ class MailRepository {
             "Replicated email from database to search engine " +
                     "from Tenant [$tenant] User [$username] " +
                     "Mail Account [$email] "
+        )
+    }
+
+    /**
+     * Batch delete mails [messages] of email [messagesId] that belongs to [tenant] [username]
+     * Do following steps:
+     * - Batch load message items
+     * - Batch delete the s3 content
+     * - Batch delete item from database
+     * - Batch delete item from search engine
+     */
+    fun deleteMailMessages(
+        tenant: String,
+        username: String,
+        mail: String,
+        mailbox: String,
+        messagesId: List<String>
+    ) {
+        // Verify account exists
+        val mailAccount = this.getMailAccount(tenant, username, mail)
+            ?: throw NotFoundException("Mail account [$mail] not found!, tenant [$tenant] username [$username]")
+
+        // Query mail messages
+        val pk =
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#$mailbox"
+
+        // Use batch load to delete MailMessage items
+        val keysList = messagesId.map {
+            return@map KeyPair().withHashKey(pk).withRangeKey("${MESSAGE_INDEX}#$it")
+        }
+        val mailMessagesKeyPairTable = mutableMapOf<Class<*>, List<KeyPair>>(
+            MailMessage::class.java to keysList
+        )
+
+        val batchLoadMessagesResults = this.dynamoDBMapper.batchLoad(mailMessagesKeyPairTable)
+        val messagesToDelete = batchLoadMessagesResults.values.first().toList() as List<MailMessage>
+
+        // Remove all mail message storage
+        val storageKeys = messagesToDelete.map {
+            return@map KeyVersion("${tenant}/${username}/${mail}/${it.messageId}")
+        }
+        val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val multiObjectDeleteRequest: DeleteObjectsRequest = DeleteObjectsRequest(mailBucket)
+            .withKeys(storageKeys)
+            .withQuiet(false)
+        this.s3Provider.deleteObjects(multiObjectDeleteRequest)
+
+        // Delete message from search engine
+        val searchMessagesIdToDelete = messagesToDelete.map { it.messageId.toSearchIndex() }
+        this.meiliSearchProvider.deleteDocuments(mailAccount.searchIndex, Gson().toJson(searchMessagesIdToDelete))
+
+        // Batch delete list of messages
+        this.dynamoDBMapper.batchDelete(messagesToDelete)
+
+        // Recalculate mailbox metric
+        var totalStorage = 0L
+        messagesToDelete.forEach {
+            totalStorage += it.size
+        }
+        this.updateMailBoxMetric(
+            "${TENANT_INDEX}#${tenant}#" + "${USER_INDEX}#${username}#" + "${MAIL_ACCOUNT_INDEX}#${mail}#" + MAILBOX_INDEX,
+            "$MAILBOX_INDEX#${mailbox}",
+            0 - totalStorage,
+            0 - messagesToDelete.size,
+            0
         )
     }
 
