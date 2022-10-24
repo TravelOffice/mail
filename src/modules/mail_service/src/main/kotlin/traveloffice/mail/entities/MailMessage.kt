@@ -4,8 +4,6 @@ import com.amazonaws.services.dynamodbv2.datamodeling.*
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
-import traveloffice.mail.common.Constant
-import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
 import traveloffice.mail.entities.search.MailMessageSearch
 import traveloffice.mail.extensions.toCDNUrl
 import traveloffice.mail.extensions.toList

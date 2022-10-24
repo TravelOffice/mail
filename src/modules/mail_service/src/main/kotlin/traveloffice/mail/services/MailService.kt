@@ -27,6 +27,7 @@ import traveloffice.mail.common.GracefulAction
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
+import traveloffice.mail.entities.apis.DeleteMailsRequestBody
 import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailAccountNotExistException
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
@@ -452,6 +453,27 @@ class MailService {
 
             }
 
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
+    }
+
+    /**
+     * Delete mails form mailbox for given email with data [deleteMailsRequest] of user [authenticatedUser]
+     */
+    @Throws(MailBoxNotExisted::class, Exception::class)
+    fun deleteMailsFromMailBox(authenticatedUser: AuthenticatedUser, deleteMailsRequest: DeleteMailsRequestBody) {
+        try {
+            // Extract tenant data
+            val (tenant, username) = authenticatedUser
+            mailRepository.deleteMailMessages(
+                tenant,
+                username,
+                deleteMailsRequest.email,
+                deleteMailsRequest.mailbox,
+                deleteMailsRequest.messagesId
+            )
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e

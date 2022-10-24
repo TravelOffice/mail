@@ -55,8 +55,17 @@ class MeiliSearchProvider(meiliSearchURL: String, meiliSearchKey: String) {
     }
 
     fun addDocuments(index: String, documents: String): Task? {
+        return Gson().fromJson(this.post("/indexes/$index/documents", documents), Task::class.java)
+    }
+
+    fun updateDocuments(index: String, documents: String): Task? {
         return Gson().fromJson(this.put("/indexes/$index/documents", documents), Task::class.java)
     }
+
+    fun deleteDocuments(index: String, documents: String): Task? {
+        return Gson().fromJson(this.post("/indexes/$index/documents/delete-batch", documents), Task::class.java)
+    }
+
 
     private fun get(url: String): String? {
         return request(url, "GET")

@@ -1,6 +1,5 @@
 package traveloffice.mail.controllers
 
-import com.amazonaws.services.kms.model.NotFoundException
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -16,9 +15,9 @@ import traveloffice.mail.common.Constant.Companion.ERROR_VALIDATOR
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.ResponseBody
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
+import traveloffice.mail.entities.apis.DeleteMailsRequestBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
-import traveloffice.mail.repositories.MailRepository
 import traveloffice.mail.services.MailService
 import java.util.function.Consumer
 import javax.validation.ConstraintViolationException
@@ -33,9 +32,6 @@ import javax.validation.constraints.NotEmpty
 class MailController {
     @Autowired
     lateinit var mailService: MailService
-
-    @Autowired
-    lateinit var mailRepository: MailRepository
 
     @GetMapping("/healthcheck")
     fun healthCheck(): ResponseEntity<String> {
@@ -110,6 +106,19 @@ class MailController {
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = mailsData, message = "Get [${mailbox}] mails successfully"
+            )
+        )
+    }
+
+    @DeleteMapping("/mails")
+    fun deleteMailsFromMailBox(@Valid @RequestBody deleteMailsRequest: DeleteMailsRequestBody): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Delete mails related to mailbox for given email
+        mailService.deleteMailsFromMailBox(authenticatedUser, deleteMailsRequest)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = null, message = "Delete mails message successfully"
             )
         )
     }

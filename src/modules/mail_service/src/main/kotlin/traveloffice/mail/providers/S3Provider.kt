@@ -3,6 +3,7 @@ package traveloffice.mail.providers
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.*
+import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
 import java.net.URL
 
 class S3Provider(region: String) {
@@ -72,6 +73,27 @@ class S3Provider(region: String) {
      * Delete object with information in [deleteObjectRequest]
      */
     private fun deleteObject(deleteObjectRequest: DeleteObjectRequest) = this.s3Client.deleteObject(deleteObjectRequest)
+
+    /**
+     * Delete all objects version with information in [deleteObjectsRequest]
+     */
+    fun deleteObjects(deleteObjectsRequest: DeleteObjectsRequest): DeleteObjectsResult {
+        val keyVersions = mutableListOf<KeyVersion>()
+        deleteObjectsRequest.keys.map {
+            val listVersionRequest = ListVersionsRequest()
+                .withBucketName(deleteObjectsRequest.bucketName)
+                .withPrefix(it.key)
+            val response = s3Client.listVersions(listVersionRequest)
+            keyVersions.addAll(response.versionSummaries.map { version ->
+                return@map KeyVersion(version.key, version.versionId)
+            })
+        }
+        if (keyVersions.isNotEmpty()) {
+            // If object has version, remove all versions
+            deleteObjectsRequest.keys = keyVersions
+        }
+        return this.s3Client.deleteObjects(deleteObjectsRequest)
+    }
 
     /**
      * Move object [sourceKey] of [bucket] to [destinationKey] of [bucket] and set [mimeType], [encoding] for new object

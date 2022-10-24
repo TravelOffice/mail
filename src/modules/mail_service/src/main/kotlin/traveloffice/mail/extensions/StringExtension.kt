@@ -1,6 +1,7 @@
 package traveloffice.mail.extensions
 
 import traveloffice.mail.common.Constant.Companion.MAIL_INDEX
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.Key
 import java.util.*
@@ -25,6 +26,10 @@ fun String.decrypt(secretKey: String): String {
 
 fun String.encodeToURL(): String {
     return URLEncoder.encode(this, "UTF-8")
+}
+
+fun String.decodeFromURL(): String {
+    return URLDecoder.decode(this, "UTF-8")
 }
 
 fun String.toCDNUrl(CDN: String): String {
