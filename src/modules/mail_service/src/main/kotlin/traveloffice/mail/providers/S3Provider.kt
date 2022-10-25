@@ -4,6 +4,7 @@ import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.*
 import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
+import traveloffice.mail.common.Constant
 import java.net.URL
 
 class S3Provider(region: String) {
@@ -79,13 +80,13 @@ class S3Provider(region: String) {
      */
     fun deleteObjects(deleteObjectsRequest: DeleteObjectsRequest): DeleteObjectsResult {
         val keyVersions = mutableListOf<KeyVersion>()
-        deleteObjectsRequest.keys.map {
+        deleteObjectsRequest.keys.map { objectReq ->
             val listVersionRequest = ListVersionsRequest()
                 .withBucketName(deleteObjectsRequest.bucketName)
-                .withPrefix(it.key)
+                .withPrefix(objectReq.key)
             val response = s3Client.listVersions(listVersionRequest)
-            keyVersions.addAll(response.versionSummaries.map { version ->
-                return@map KeyVersion(version.key, version.versionId)
+            keyVersions.addAll(response.versionSummaries.map {
+                KeyVersion(it.key, it.versionId)
             })
         }
         if (keyVersions.isNotEmpty()) {
@@ -105,9 +106,55 @@ class S3Provider(region: String) {
     }
 
     /**
+     * Move all objects from [sourceKey] of [bucket] to [destinationKey] of [bucket]
+     */
+    fun moveObjects(bucket: String, sourceKey: String, destinationKey: String) {
+        var objectsListing = this.s3Client.listObjects(bucket, sourceKey)
+        val sourceObjects = objectsListing.objectSummaries
+        while (objectsListing.isTruncated) {
+            objectsListing = this.s3Client.listNextBatchOfObjects(objectsListing);
+            sourceObjects.addAll (objectsListing.objectSummaries);
+        }
+        if (sourceObjects.isNullOrEmpty()) return
+        sourceObjects.map {
+            val copyObjectRequest = CopyObjectRequest()
+                .withSourceBucketName(bucket)
+                .withSourceKey(it.key)
+                .withDestinationBucketName(bucket)
+                .withDestinationKey("$destinationKey${it.key.replace(sourceKey, "")}")
+            this.s3Client.copyObject(copyObjectRequest);
+        }
+        // Remove all mail message storage
+        val storageKeys = sourceObjects.map {
+            return@map KeyVersion(it.key)
+        }
+        val multiObjectDeleteRequest: DeleteObjectsRequest = DeleteObjectsRequest(bucket)
+            .withKeys(storageKeys)
+            .withQuiet(false)
+        this.deleteObjects(multiObjectDeleteRequest)
+    }
+
+    /**
      * Get size of [objectKey] in [bucket]
      */
     fun getObjectSize(bucket: String, objectKey: String): Long {
         return this.s3Client.getObjectMetadata(bucket, objectKey).contentLength
+    }
+
+    /**
+     * Get size of all [objectKey] in [bucket]
+     */
+    fun getObjectsSize(bucket: String, objectKey: String): Long {
+        var objectsListing = this.s3Client.listObjects(bucket, objectKey)
+        val sourceObjects = objectsListing.objectSummaries
+        while (objectsListing.isTruncated) {
+            objectsListing = this.s3Client.listNextBatchOfObjects(objectsListing);
+            sourceObjects.addAll(objectsListing.objectSummaries);
+        }
+        var totalSize = 0L
+        sourceObjects.forEach {
+            totalSize += it.size
+        }
+        return totalSize
     }
 }

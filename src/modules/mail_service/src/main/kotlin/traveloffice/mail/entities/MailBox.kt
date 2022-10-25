@@ -14,24 +14,13 @@ class MailBox : BaseModel() {
             return this.sk.substring(MAILBOX_INDEX.length + 1)
         }
 
-    @Expose
-    @DynamoDBAttribute(attributeName = "count")
-    var count: Int = 0
-
-    @Expose
-    @DynamoDBAttribute(attributeName = "unread")
-    var unread: Int = 0
-
-    @Expose
-    @DynamoDBAttribute(attributeName = "size")
-    var size: Long = 0
-
     @DynamoDBAttribute(attributeName = "syncStatus")
     var syncStatus: String? = null
 
     @Expose
     @DynamoDBAttribute(attributeName = "order")
     var order: Int = 0
+
     /**
      * Returns json object with only exposed values
      */
