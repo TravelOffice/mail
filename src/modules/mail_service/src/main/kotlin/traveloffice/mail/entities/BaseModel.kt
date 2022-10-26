@@ -36,6 +36,10 @@ open class BaseModel {
     @DynamoDBAttribute(attributeName = "updatedAt")
     var updatedAt: Long = Date().time
 
+    // DynamoDB Time to Live (TTL)
+    @DynamoDBAttribute(attributeName = "ttl")
+    var ttl: Long? = null
+
     open fun toJson(): MutableMap<String, Any> {
         val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
         return gson

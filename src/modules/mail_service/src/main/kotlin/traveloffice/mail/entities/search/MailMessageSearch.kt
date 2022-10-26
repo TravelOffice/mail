@@ -4,8 +4,6 @@ import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
 import com.meilisearch.sdk.Settings
 import traveloffice.mail.entities.EmailAddress
-import java.util.*
-import kotlin.collections.ArrayList
 
 data class MailMessageSearch(
     @Expose
@@ -23,7 +21,7 @@ data class MailMessageSearch(
     @Expose
     var bcc: List<EmailAddress>?,
     @Expose
-    var subject : String?,
+    var subject: String?,
     @Expose
     var content: String?,
     @Expose
@@ -32,11 +30,21 @@ data class MailMessageSearch(
     var date: Long?,
     @Expose
     var flags: List<String>,
+    @Expose
+    var ttl: Long? = null,
 ) {
     data class IndexConfig(
         var displayedAttributes: ArrayList<String> = arrayListOf("*"),
-        var searchableAttributes: ArrayList<String> = arrayListOf("from", "to", "cc", "bcc", "subject", "content", "attachments"),
-        var filterableAttributes: ArrayList<String> = arrayListOf("box", "flags", "from.address"),
+        var searchableAttributes: ArrayList<String> = arrayListOf(
+            "from",
+            "to",
+            "cc",
+            "bcc",
+            "subject",
+            "content",
+            "attachments"
+        ),
+        var filterableAttributes: ArrayList<String> = arrayListOf("box", "flags", "from.address", "ttl"),
         var sortableAttributes: ArrayList<String> = arrayListOf("date"),
     ) {
         fun defaultSetting(): Settings {
@@ -48,6 +56,7 @@ data class MailMessageSearch(
             return settings
         }
     }
+
     fun toJsonString(): String {
         val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
         return gson.toJson(this)

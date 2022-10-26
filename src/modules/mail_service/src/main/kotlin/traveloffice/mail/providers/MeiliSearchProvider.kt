@@ -44,6 +44,10 @@ class MeiliSearchProvider(meiliSearchURL: String, meiliSearchKey: String) {
         return this.updateSetting(indexUid, settings)
     }
 
+    fun deleteIndex(indexUid: String): Task? {
+        return Gson().fromJson(this.delete("/indexes/$indexUid"), Task::class.java)
+    }
+
     private fun updateSetting(index: String, settings: Settings): Task? {
         val body = Gson().toJson(settings)
         return Gson().fromJson(this.patch("/indexes/$index/settings", body), Task::class.java)
@@ -79,8 +83,8 @@ class MeiliSearchProvider(meiliSearchURL: String, meiliSearchKey: String) {
         return request(url, "PUT", body)
     }
 
-    private fun delete(url: String, body: String): String? {
-        return request(url, "PUT", body)
+    private fun delete(url: String, body: String? = null): String? {
+        return request(url, "DELETE", body)
     }
 
     private fun patch(url: String, body: String): String? {

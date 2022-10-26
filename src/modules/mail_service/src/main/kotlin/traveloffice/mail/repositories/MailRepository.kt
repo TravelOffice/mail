@@ -19,6 +19,7 @@ import net.fortuna.ical4j.data.ParserException
 import net.fortuna.ical4j.model.component.VEvent
 import org.apache.commons.collections.ListUtils
 import org.apache.commons.io.IOUtils
+import org.apache.commons.lang.time.DateUtils
 import org.jsoup.Jsoup
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -26,8 +27,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
-import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.DEFAULT_ENCODING
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_FETCH
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_SYNC
 import traveloffice.mail.common.Constant.Companion.DEFAULT_PRESIGNED_URL_EXPIRATION
@@ -306,12 +307,12 @@ class MailRepository {
      * @return The email account information.
      * @exception
      */
-    fun getMailAccount(tenant: String, username: String, email: String): MailAccount? {
+    fun getMailAccount(tenant: String, username: String, email: String): MailAccount {
         val mailAccount = this.dynamoDBMapper.load(
             MailAccount::class.java,
             "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}",
             "${MAIL_ACCOUNT_INDEX}#${email}"
-        )
+        ) ?: throw NotFoundException("Mail account [$email] not found!, tenant [$tenant] username [$username]")
         //Decrypt password
         val encryptionKey = this.secretManagerService.getAWSSecretValue(ENCRYPT_SECRET_KEY)
         mailAccount.inboundPassword = mailAccount.inboundPassword.decrypt(encryptionKey)
@@ -418,6 +419,17 @@ class MailRepository {
             .withExpressionAttributeValues(eav)
 
         return this.dynamoDBMapper.query(MailAccount::class.java, queryExpression)
+    }
+
+    /**
+     * Get total mail storage for given [username] that belong to [tenant]
+     *
+     * Returns total storage
+     */
+    fun getUserMailStorage(tenant: String, username: String): Long {
+        val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val mailAccountBucketKey = "$tenant/$username"
+        return s3Provider.getObjectsSize(mailBucket, mailAccountBucketKey)
     }
 
     /**
@@ -669,42 +681,6 @@ class MailRepository {
     }
 
     /**
-     * This method perform to update the mailbox size
-     *
-     * @param mailBoxPk: The mailbox pk
-     * @param mailBoxSk: The mailbox sk
-     * @param size: The change size to be updated
-     *  + for increase size,
-     *  - for decrease size.
-     * @param count: The change count to be updated
-     *  + for increase,
-     *  - for decrease.
-     * @param unread: The change unread to be updated
-     *  + for increase,
-     *  - for decrease.
-     *
-     * @return The new storage size of the mailbox
-     * @exception
-     */
-    fun updateMailBoxMetric(mailBoxPk: String, mailBoxSk: String, size: Long = 0, count: Int = 0, unread: Int = 0) {
-        val mailTableName = this.secretManagerService.getAWSSecretValue("DYNAMO_MAIL_TABLE")
-        val key: Map<String, AttributeValue> = hashMapOf(
-            "pk" to AttributeValue().withS(mailBoxPk),
-            "sk" to AttributeValue().withS(mailBoxSk)
-        )
-        val attributeUpdates: Map<String, AttributeValueUpdate> = hashMapOf(
-            "size" to AttributeValueUpdate(AttributeValue().withN(size.toString()), AttributeAction.ADD),
-            "count" to AttributeValueUpdate(AttributeValue().withN(count.toString()), AttributeAction.ADD),
-            "unread" to AttributeValueUpdate(AttributeValue().withN(unread.toString()), AttributeAction.ADD)
-        )
-        val updateRequest: UpdateItemRequest = UpdateItemRequest()
-            .withTableName(mailTableName)
-            .withKey(key)
-            .withAttributeUpdates(attributeUpdates)
-        this.dynamoDBClient.updateItem(updateRequest)
-    }
-
-    /**
      * This method perform to notification new email received
      *
      * @param mailAccount: The mail account information.
@@ -742,24 +718,17 @@ class MailRepository {
      * Throw [Exception] when failed to link email
      */
     fun linkEmail(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser, encryptionKey: String) = try {
-        val userPk = "$TENANT_INDEX#${authenticatedUser.tenant}#$USER_INDEX#${authenticatedUser.username}"
+        val (tenant, username) = authenticatedUser
+        val userPk = "$TENANT_INDEX#$tenant#$USER_INDEX#$username"
         // Generate pk, sk for dynamo db
         mailAccount.pk = userPk
         mailAccount.sk = "$MAIL_ACCOUNT_INDEX#${mailAccount.email}"
-        // Save default mailbox to dynamodb
-        for ((index, name) in Constant.DEFAULT_MAILBOX.withIndex()) {
-            val mailBox = MailBox()
-            mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#$MAILBOX_INDEX"
-            mailBox.sk = "$MAILBOX_INDEX#$name"
-            mailBox.order = index
-            this.dynamoDBMapper.save(mailBox)
-        }
         // Encrypt mail password
         mailAccount.inboundPassword = mailAccount.inboundPassword.encrypt(encryptionKey)
         mailAccount.outboundPassword = mailAccount.outboundPassword.encrypt(encryptionKey)
         // Set tenant, username for mail account
-        mailAccount.tenant = authenticatedUser.tenant
-        mailAccount.username = authenticatedUser.username
+        mailAccount.tenant = tenant
+        mailAccount.username = username
         //Create mail message search index
         val messageIndex = "${userPk}#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#${MESSAGE_INDEX}".toSearchIndex()
         mailAccount.searchIndex = messageIndex
@@ -768,10 +737,98 @@ class MailRepository {
         // Create the search engine index
         this.meiliSearchProvider.createOrUpdateIndex(messageIndex, MailMessageSearch.IndexConfig().defaultSetting())
 
+        val mailboxes = getMailBoxes(tenant, username, mailAccount.email)
+        if (mailboxes.isNotEmpty() && mailboxes.first().ttl != null) {
+            // Restore from old mail data
+            logger.info("Updating mail account [${mailAccount.email}] ttl")
+            updateMailAccountTTL(tenant, username, mailAccount)
+            logger.info("Updated mail account [${mailAccount.email}] ttl successfully")
+            // Restore all mail storage from temporary folder
+            val mailBucket = secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+            val targetBucket = "$tenant/$username/${mailAccount.email}"
+            val orgBucket = "temporary-delete/$targetBucket"
+            logger.info("Moving mail storage of mail account [${mailAccount.email}] to temporary delete")
+            s3Provider.moveObjects(mailBucket, orgBucket, targetBucket)
+            logger.info("Move mail storage of mail account [${mailAccount.email}] to temporary delete successfully")
+        } else {
+            // create new default mailbox to dynamodb
+            for ((index, name) in DEFAULT_MAILBOX.withIndex()) {
+                val mailBox = MailBox()
+                mailBox.pk = "$userPk#$MAIL_ACCOUNT_INDEX#${mailAccount.email}#$MAILBOX_INDEX"
+                mailBox.sk = "$MAILBOX_INDEX#$name"
+                mailBox.order = index
+                this.dynamoDBMapper.save(mailBox)
+            }
+        }
+
         logger.info("Save mail account ${mailAccount.email} to dynamodb successfully")
     } catch (e: Exception) {
         logger.error(e.toString())
         throw Exception("Failed to link mail account ${mailAccount.email}")
+    }
+
+    /**
+     * Unlink [mailAccount] of [tenant] and [username] to our system
+     * Throw [Exception] when failed to link email
+     */
+    fun unlinkEmail(tenant: String, username: String, mailAccount: MailAccount) = try {
+        // Set expiration date for all record belong to mail account, accuracy by hour
+        val expDate = DateUtils.ceiling(DateUtils.addDays(Date(), 7), Calendar.HOUR)
+        logger.info("Updating mail account [${mailAccount.email}] ttl")
+        updateMailAccountTTL(tenant, username, mailAccount, expDate)
+        logger.info("Updated mail account [${mailAccount.email}] ttl successfully")
+        // Move all mail storage to temporary folder that will be expiration after 7 days
+        val mailBucket = secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+        val orgBucket = "$tenant/$username/${mailAccount.email}"
+        val targetBucket = "temporary-delete/${orgBucket}"
+        logger.info("Moving mail storage of mail account [${mailAccount.email}] to temporary delete")
+        s3Provider.moveObjects(mailBucket, orgBucket, targetBucket)
+        logger.info("Moved mail storage of mail account [${mailAccount.email}] to temporary delete successfully")
+        // Remove mail account from database
+        dynamoDBMapper.delete(mailAccount)
+    } catch (e: Exception) {
+        logger.error(e.toString())
+        throw Exception("Failed to unlink mail account ${mailAccount.email} from tenant $tenant and username $username")
+    }
+
+    private fun updateMailAccountTTL(
+        tenant: String,
+        username: String,
+        mailAccount: MailAccount,
+        expDate: Date? = null
+    ) {
+        val mail = mailAccount.email
+        // For DynamoDB TTL
+        val dynamoDBTTL = expDate?.time?.div(1000L)
+        // For search TTL
+        val searchTTL = dynamoDBTTL ?: 0
+        val mailBoxes = getMailBoxes(tenant, username, mail)
+        val mailBoxesWithTTL = mailBoxes.map {
+            it.ttl = dynamoDBTTL
+            return@map it
+        }
+        dynamoDBMapper.batchSave(mailBoxesWithTTL)
+
+        mailBoxes.forEach { mailbox ->
+            // Add ttl to all mail message attribute
+            var lastEvaluatedKey: String? = null
+            do {
+                val (token, messages) = getMailsInsideMailBox(tenant, username, mail, mailbox.name, lastEvaluatedKey)
+                lastEvaluatedKey = (if (token != "null") token else null)
+                val mailMessagesTTL = messages.map { message ->
+                    message.ttl = dynamoDBTTL
+                    return@map message
+                }
+                val searchUpdateMessage = messages.map { message ->
+                    mapOf(
+                        "id" to message.messageId.toSearchIndex(),
+                        "ttl" to searchTTL
+                    )
+                }
+                meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
+                dynamoDBMapper.batchSave(mailMessagesTTL)
+            } while (lastEvaluatedKey != null)
+        }
     }
 
     fun sendEmail(mailAccount: MailAccount, mailMessage: MailMessage) {
@@ -926,11 +983,12 @@ class MailRepository {
 
         // Update search engine items
         val mailAccount = this.getMailAccount(tenant, username, mail)
-            ?: throw NotFoundException("Mail account [$mail] not found!, tenant [$tenant] username [$username]")
-        val searchUpdateMessage = listOf(mapOf(
-            "id" to newMailMessage.messageId.toSearchIndex(),
-            "box" to to
-        ))
+        val searchUpdateMessage = listOf(
+            mapOf(
+                "id" to newMailMessage.messageId.toSearchIndex(),
+                "box" to to
+            )
+        )
         this.meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
     }
 
@@ -952,7 +1010,6 @@ class MailRepository {
     ) {
         // Verify account exists
         val mailAccount = this.getMailAccount(tenant, username, mail)
-            ?: throw NotFoundException("Mail account [$mail] not found!, tenant [$tenant] username [$username]")
 
         // Query mail messages
         val pkWithoutMailbox =
@@ -1081,7 +1138,6 @@ class MailRepository {
     ) {
         // Verify account exists
         val mailAccount = this.getMailAccount(tenant, username, mail)
-            ?: throw NotFoundException("Mail account [$mail] not found!, tenant [$tenant] username [$username]")
 
         // Query mail messages
         val pk =
@@ -1114,19 +1170,6 @@ class MailRepository {
 
         // Batch delete list of messages
         this.dynamoDBMapper.batchDelete(messagesToDelete)
-
-        // Recalculate mailbox metric
-        var totalStorage = 0L
-        messagesToDelete.forEach {
-            totalStorage += it.size
-        }
-        this.updateMailBoxMetric(
-            "${TENANT_INDEX}#${tenant}#" + "${USER_INDEX}#${username}#" + "${MAIL_ACCOUNT_INDEX}#${mail}#" + MAILBOX_INDEX,
-            "$MAILBOX_INDEX#${mailbox}",
-            0 - totalStorage,
-            0 - messagesToDelete.size,
-            0
-        )
     }
 
     private fun getStringContentFromEmail(mailMessage: MailMessage): String {

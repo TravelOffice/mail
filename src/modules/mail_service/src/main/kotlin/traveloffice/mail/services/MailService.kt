@@ -18,18 +18,13 @@ import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_INBOX
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SENT
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SPAM
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAX_THREAD_POOL
-import traveloffice.mail.common.Constant.Companion.MAILBOX_INDEX
-import traveloffice.mail.common.Constant.Companion.MAIL_ACCOUNT_INDEX
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
-import traveloffice.mail.common.Constant.Companion.TENANT_INDEX
-import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.common.GracefulAction
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.entities.apis.DeleteMailsRequestBody
 import traveloffice.mail.exceptions.InvalidArguments
-import traveloffice.mail.exceptions.MailAccountNotExistException
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.exceptions.MailBoxNotExisted
 import traveloffice.mail.repositories.MailRepository
@@ -76,7 +71,6 @@ class MailService {
             username,
             emailAddress
         )
-            ?: throw MailAccountNotExistException("Tenant [${tenant}], User [${username}], Mail account [$emailAddress] doesn't exist")
 
         // Download Html content from S3 Pre-signed url
         sendingMessage.rawHtmlContent = MailAttachment.Builder()
@@ -106,12 +100,6 @@ class MailService {
         this.mailRepository.saveEmail(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
         logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent email to database successfully")
 
-        // Update sent mailbox metric
-        val mailBoxPk =
-            "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}"
-        val mailBoxSk = "${MAILBOX_INDEX}#${DEFAULT_MAILBOX_SENT}"
-        this.mailRepository.updateMailBoxMetric(mailBoxPk, mailBoxSk, storeMessage.size, 1)
-        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Update SENT mail box metric successfully")
         return storeMessage
     }
 
@@ -145,7 +133,6 @@ class MailService {
 
         // Get the mail account information
         val mailAccount = this.mailRepository.getMailAccount(tenant, username, account)
-            ?: throw NotFoundException("Mail account [$account] not found!, tenant [$tenant] username [$username]")
 
         // Get the mailbox information
         var mailBox: MailBox
@@ -241,19 +228,7 @@ class MailService {
                 )
                 val lastSuccessMessageNumber = parsedSuccessResult.first().messageNumber
                 parsedFailedResult = parsedResult.filter { it.failed && it.messageNumber < lastSuccessMessageNumber }
-                var totalSize = 0L
-                val messageProcessedCount = parsedSuccessResult.size
 
-                // Calculate the total size
-                parsedSuccessResult.forEach { totalSize += it.size }
-                // Update the mailbox size, count, and unread count
-                this.mailRepository.updateMailBoxMetric(
-                    mailBox.pk,
-                    mailBox.sk,
-                    totalSize,
-                    messageProcessedCount,
-                    messageProcessedCount
-                )
                 // Send the new email notification to AppSync
                 mailRepository.notifyNewEmailsReceived(
                     mailAccount,
@@ -308,6 +283,23 @@ class MailService {
         throw e
     }
 
+    /**
+     * UnLink mail account for given [mail] which related to [authenticatedUser]
+     * The user [authenticatedUser] contains **tenant** and **username** values
+     *
+     */
+    fun unlinkEmail(mail: String, authenticatedUser: AuthenticatedUser) = try {
+        val (tenant, username) = authenticatedUser
+        // Check if mail account exists before unlink
+        val mailAccount = this.mailRepository.getMailAccount(tenant, username, mail)
+        // Unlink email and also remove all mail information
+        mailRepository.unlinkEmail(tenant, username, mailAccount)
+        logger.info("Unlink mail account $mail successfully")
+    } catch (e: Exception) {
+        logger.error(e.toString())
+        throw e
+    }
+
 
     /**
      * Get mail boxes for given [mail] which related to [authenticatedUser]
@@ -340,14 +332,19 @@ class MailService {
     /**
      * Get mail accounts for [authenticatedUser]
      *
-     * Returns list of mail accounts  information with exposed data
+     * Returns list of mail accounts information with exposed data
      */
-    fun getUserMailAccounts(authenticatedUser: AuthenticatedUser): List<Map<String, Any>> {
+    fun getUserMailAccounts(authenticatedUser: AuthenticatedUser): Map<String, Any> {
         try {
             val (tenant, username) = authenticatedUser
-            return mailRepository
+            val accounts = mailRepository
                 .getUserMailAccounts(tenant, username)
                 .map { it.toJson() }
+            val totalStorage = mailRepository.getUserMailStorage(tenant, username)
+            return mapOf(
+                "totalStorage" to totalStorage,
+                "accounts" to accounts
+            )
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e

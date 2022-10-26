@@ -1,6 +1,6 @@
 #!/bin/bash
 apt update -y
-apt install unzip curl wget -y
+apt install unzip curl wget cron -y
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip -o awscliv2.zip
 ./aws/install
@@ -123,14 +123,14 @@ cat << EOF > /opt/aws/amazon-cloudwatch-agent/bin/config.json
       "files": {
         "collect_list": [
           {
-              "file_path": "/var/log/meilisearch/access.log",
+              "file_path": "$${LOG_PATH}/access.log",
               "log_group_name":  "${log_group}",
               "log_stream_name": "{ip_address}_{instance_id}",
               "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
               "timezone": "Local"
           },
           {
-            "file_path": "/var/log/meilisearch/error.log",
+            "file_path": "$${LOG_PATH}/error.log",
             "log_group_name":  "${log_group}",
             "log_stream_name": "{ip_address}_{instance_id}",
             "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
@@ -144,3 +144,86 @@ cat << EOF > /opt/aws/amazon-cloudwatch-agent/bin/config.json
 EOF
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
+
+
+# Setup script to delete expired data
+cat << EOF > /delete_expired_data.py
+# importing the requests library
+from urllib import response
+import requests
+import time
+import json
+
+# api-endpoint
+URL = "http://localhost"
+MASTER_KEY = ${master_key}
+HEADERS = {'Content-type': 'application/json', 'Authorization': "Bearer " + MASTER_KEY}
+LIMIT = 10
+
+def getIndexes():
+  indexes = []
+  count = 0
+
+  while True:
+    getIndexParams = {'offset': count, "limit": LIMIT}
+    response = requests.get(url=URL + "/indexes", params=getIndexParams, headers=HEADERS)
+    data = response.json()
+    results = data["results"]
+    count += len(results)
+    total = int(data["total"])
+    for result in results:
+      indexes.append(result["uid"])
+    if count >= total:
+      break
+
+  print("Found total " + str(count) + " indexes: ", indexes)
+  return indexes
+
+def getExpItems(index, expTime):
+  uids = []
+  count = 0
+
+  while True:
+    search_data = {
+      "q": "",
+      "attributesToRetrieve": ["id"],
+      "filter": [
+        "ttl <= " + str(expTime),
+        "ttl != 0"
+      ],
+      "offset": count,
+      "limit": LIMIT
+    }
+    response = requests.post(url=URL + "/indexes/" + index + "/search", headers=HEADERS, data=json.dumps(search_data))
+    data = response.json()
+    total = int(data["estimatedTotalHits"])
+    results = data["hits"]
+    for result in results:
+      uids.append(result["id"])
+    count += len(results)
+    if count >= total:
+      break
+
+  print("Index: ", index, " found total " + str(count) + " items")
+  return uids
+
+def batchDeleteExpItems(index, items):
+  print("Going to delete all exp items: ", items)
+  response = requests.post(url=URL + "/indexes/" + index + "/documents/delete-batch", headers=HEADERS, data=json.dumps(items))
+  return response.json()
+
+# Get all exp items and delete them
+current_time = int(time.time())
+print(current_time)
+indexes = getIndexes()
+for index in indexes:
+  expItems = getExpItems(index, current_time)
+  if len(expItems) > 0:
+    batchDeleteExpItems(index, expItems)
+EOF
+
+systemctl enable cron
+cat << EOF > /var/spool/cron/crontabs/meili_delete_expired
+*/5 * * * * /usr/bin/python3 /delete_expired_data.py > $${LOG_PATH}/access.log
+EOF
+systemctl restart cron

@@ -34,7 +34,7 @@ class MailMessage : BaseModel() {
 
     @Expose
     @DynamoDBAttribute(attributeName = "briefContent")
-    lateinit var briefContent: String
+    var briefContent: String = ""
 
     @DynamoDBIgnore
     var plainTextEmailBody: InputStream? = null

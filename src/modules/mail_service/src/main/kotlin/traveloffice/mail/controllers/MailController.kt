@@ -49,6 +49,19 @@ class MailController {
         )
     }
 
+    @GetMapping("/unlink-email")
+    fun unlinkEmail(
+        @RequestParam("email") @NotEmpty @Email mail: String
+    ): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        mailService.unlinkEmail(mail, authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = null, message = "Unlink successfully"
+            )
+        )
+    }
+
     @GetMapping("/presigned-url")
     fun getPresignedUrl(
         @RequestParam @NotEmpty fileName: String,
@@ -81,7 +94,7 @@ class MailController {
     }
 
     @GetMapping("/mail-accounts")
-    fun getUserMailAccounts(): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
+    fun getUserMailAccounts(): ResponseEntity<ResponseBody<Map<String, Any>>> {
         // Get user that own Cognito token
         val authenticatedUser = SecurityContextHolder.getContext().getUser()
         // Get mail accounts for authenticated user
