@@ -334,16 +334,29 @@ class MailService {
      *
      * Returns list of mail accounts information with exposed data
      */
-    fun getUserMailAccounts(authenticatedUser: AuthenticatedUser): Map<String, Any> {
+    fun getUserMailAccounts(authenticatedUser: AuthenticatedUser): List<Map<String, Any>> {
         try {
             val (tenant, username) = authenticatedUser
-            val accounts = mailRepository
+            return mailRepository
                 .getUserMailAccounts(tenant, username)
                 .map { it.toJson() }
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
+    }
+
+    /**
+     * Get mail accounts storage for [authenticatedUser]
+     *
+     * Returns mail accounts storage information
+     */
+    fun getUserMailStorage(authenticatedUser: AuthenticatedUser): Map<String, Any> {
+        try {
+            val (tenant, username) = authenticatedUser
             val totalStorage = mailRepository.getUserMailStorage(tenant, username)
             return mapOf(
-                "totalStorage" to totalStorage,
-                "accounts" to accounts
+                "totalStorage" to totalStorage
             )
         } catch (e: Exception) {
             logger.error(e.toString())

@@ -156,7 +156,7 @@ import json
 
 # api-endpoint
 URL = "http://localhost"
-MASTER_KEY = ${master_key}
+MASTER_KEY = "${master_key}"
 HEADERS = {'Content-type': 'application/json', 'Authorization': "Bearer " + MASTER_KEY}
 LIMIT = 10
 
@@ -223,7 +223,5 @@ for index in indexes:
 EOF
 
 systemctl enable cron
-cat << EOF > /var/spool/cron/crontabs/meili_delete_expired
-*/5 * * * * /usr/bin/python3 /delete_expired_data.py > $${LOG_PATH}/access.log
-EOF
+(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/bin/python3 /delete_expired_data.py >> $${LOG_PATH}/access.log") | crontab -
 systemctl restart cron
