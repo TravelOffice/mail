@@ -14,6 +14,8 @@ import com.amazonaws.services.kms.model.NotFoundException
 import com.amazonaws.services.s3.model.*
 import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
 import com.google.gson.Gson
+import com.meilisearch.sdk.exceptions.MeiliSearchApiException
+import com.meilisearch.sdk.model.SearchResult
 import net.fortuna.ical4j.data.CalendarBuilder
 import net.fortuna.ical4j.data.ParserException
 import net.fortuna.ical4j.model.component.VEvent
@@ -161,7 +163,7 @@ class MailRepository {
         val email = mailProvider.parseMessage(message)
 
         // Create the mail message information
-        mailMessage.messageId = mailProvider.getMessageId(message)
+        mailMessage.messageId = mailProvider.getMessageId(message) ?: UUID.randomUUID().toString()
         mailMessage.plainTextEmailBody = email.plainTextEmailBody?.`is`
         if (email.htmlEmailBody != null)
             mailMessage.rawHtmlContent = getHtmlContentFromEmail(email.htmlEmailBody)

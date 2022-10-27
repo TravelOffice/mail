@@ -29,10 +29,11 @@ class IMAPProvider : MailProvider() {
             message.raw = it
             return@map message
         }
+        val sortedMessages = messages.sortedByDescending { it.uid!!.toLong() }
         if (limit != null) {
-            return messages.stream().limit(limit).toList()
+            return sortedMessages.stream().limit(limit).toList()
         }
-        return messages
+        return sortedMessages
     }
 
     /**
@@ -80,7 +81,7 @@ class IMAPProvider : MailProvider() {
      * @exception
      */
     @Override
-    override fun getMessageId(message: Message): String = (message as IMAPMessage).messageID
+    override fun getMessageId(message: Message): String? = (message as IMAPMessage).messageID
 
     /**
      * This method perform to get the message reply to from provider

@@ -94,7 +94,7 @@ class MailController {
     }
 
     @GetMapping("/mail-accounts")
-    fun getUserMailAccounts(): ResponseEntity<ResponseBody<Map<String, Any>>> {
+    fun getUserMailAccounts(): ResponseEntity<ResponseBody<List<Map<String, Any>>>> {
         // Get user that own Cognito token
         val authenticatedUser = SecurityContextHolder.getContext().getUser()
         // Get mail accounts for authenticated user
@@ -189,6 +189,19 @@ class MailController {
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = mailMessages, message = "Get mail message successfully"
+            )
+        )
+    }
+
+    @GetMapping("/storage")
+    fun getUserMailStorage(): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Get mail accounts storage information for authenticated user
+        val accountsStorage = mailService.getUserMailStorage(authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = accountsStorage, message = "Get user's mail accounts storage information successfully"
             )
         )
     }

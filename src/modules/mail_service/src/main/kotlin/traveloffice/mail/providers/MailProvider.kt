@@ -88,7 +88,7 @@ abstract class MailProvider {
      * @return The ID of the message.
      * @exception
      */
-    abstract fun getMessageId(message: Message): String
+    abstract fun getMessageId(message: Message): String?
 
     /**
      * This method perform to get the message reply to from provider

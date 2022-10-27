@@ -102,7 +102,7 @@ class POP3Provider : MailProvider() {
      * @exception
      */
     @Override
-    override fun getMessageId(message: Message): String = (message as POP3Message).messageID
+    override fun getMessageId(message: Message): String? = (message as POP3Message).messageID
 
     /**
      * This method perform to get the message reply to from provider
