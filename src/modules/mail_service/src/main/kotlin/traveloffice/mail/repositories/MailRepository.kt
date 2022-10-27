@@ -5,6 +5,7 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
 import com.amazonaws.services.dynamodbv2.datamodeling.KeyPair
+import com.amazonaws.services.dynamodbv2.document.Attribute
 import com.amazonaws.services.dynamodbv2.document.ItemUtils
 import com.amazonaws.services.dynamodbv2.model.AttributeAction
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
@@ -445,7 +446,7 @@ class MailRepository {
         mailMessage.pk =
             "${TENANT_INDEX}#${mailAccount.tenant}#${USER_INDEX}#${mailAccount.username}#${MAIL_ACCOUNT_INDEX}#${mailAccount.email}#${MAILBOX_INDEX}#${mailBoxName}"
         mailMessage.sk = "${MESSAGE_INDEX}#${mailMessage.messageId}"
-        mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBoxName}#${mailMessage.sentDate}"
+        mailMessage.lsi1 = "$MAILBOX_INDEX#${mailBoxName}#${mailMessage.sentDate ?: mailMessage.updatedAt}"
         mailMessage.mailbox = mailBoxName
 
         val rawHtmlContent = mailMessage.rawHtmlContent
@@ -668,10 +669,11 @@ class MailRepository {
         val mailTableName = this.secretManagerService.getAWSSecretValue("DYNAMO_MAIL_TABLE")
         val key: Map<String, AttributeValue> = hashMapOf(
             "pk" to AttributeValue().withS(mailBox.pk),
-            "sk" to AttributeValue().withS(mailBox.sk)
+            "sk" to AttributeValue().withS(mailBox.sk),
         )
         val attributeUpdates: Map<String, AttributeValueUpdate> = hashMapOf(
-            "syncStatus" to AttributeValueUpdate(AttributeValue().withS(status.toString()), AttributeAction.PUT)
+            "syncStatus" to AttributeValueUpdate(AttributeValue().withS(status.toString()), AttributeAction.PUT),
+            "updatedAt" to AttributeValueUpdate(AttributeValue().withN(Date().time.toString()), AttributeAction.PUT),
         )
         val updateRequest: UpdateItemRequest = UpdateItemRequest()
             .withTableName(mailTableName)
@@ -855,7 +857,7 @@ class MailRepository {
      * Store sent email [mailMessage] of [tenant], [username] to s3 bucket
      * Return total size of email
      */
-    fun storeSentEmailToS3(tenant: String, username: String, mailMessage: MailMessage) {
+    fun storeEmailToS3(tenant: String, username: String, mailMessage: MailMessage) {
         val email = mailMessage.fromAsInternetAddress.address
         val messageId = mailMessage.messageId
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
@@ -863,7 +865,11 @@ class MailRepository {
         // Move html content
         val tenantKeyPrefix = "${tenant}/${username}/${email}/${messageId}"
         val htmlObjectKey = "${tenantKeyPrefix}/htmlContent/index.html"
-        this.s3Provider.moveObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
+        if (mailMessage.htmlContent.contains(S3_TEMPORARY_UPLOAD_FOLDER)) {
+            this.s3Provider.moveObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
+        } else {
+            this.s3Provider.copyObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
+        }
         mailMessage.htmlContent = htmlObjectKey.encodeToURL()
         mailMessage.size = this.s3Provider.getObjectSize(mailBucket, htmlObjectKey)
 
@@ -955,6 +961,7 @@ class MailRepository {
 
     /**
      * Change mailbox [from] to [to] for mail [message] of email [mail] that belongs to [tenant] [username]
+     * In case sending draft email, need to update lsi1 follow [sentDate]
      */
     fun changeMailboxOfMessage(
         tenant: String,
@@ -962,7 +969,8 @@ class MailRepository {
         from: String,
         to: String,
         mail: String,
-        message: String
+        message: String,
+        sentDate: Long? = null,
     ) {
         // Query mail message
         val pkWithoutMailbox =
@@ -978,7 +986,13 @@ class MailRepository {
         // Insert the new one
         newMailMessage.pk = "$pkWithoutMailbox$to"
         newMailMessage.sk = sk
-        newMailMessage.lsi1 = mailMessage.lsi1?.replace(from.uppercase(), to.uppercase())
+        newMailMessage.updatedAt = Date().time
+        if (sentDate === null) {
+            newMailMessage.lsi1 = mailMessage.lsi1?.replace(from.uppercase(), to.uppercase())
+        } else {
+            newMailMessage.lsi1 = "$MAILBOX_INDEX#${to.uppercase()}#${sentDate}"
+            newMailMessage.sentDate = sentDate
+        }
         this.dynamoDBMapper.save(newMailMessage)
 
         // Update search engine items
