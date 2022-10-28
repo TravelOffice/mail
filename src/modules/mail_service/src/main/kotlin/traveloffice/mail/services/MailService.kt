@@ -1,6 +1,7 @@
 package traveloffice.mail.services
 
 import com.amazonaws.services.kms.model.NotFoundException
+import com.google.gson.GsonBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -15,18 +16,19 @@ import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DELETE
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DRAFT
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_INBOX
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SCHEDULED
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SENT
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SPAM
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAX_THREAD_POOL
 import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.GracefulAction
+import traveloffice.mail.common.Constant.Companion.MAXIMUM_SCHEDULED_MAIL
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.entities.apis.DeleteMailsRequestBody
-import traveloffice.mail.exceptions.InvalidArguments
-import traveloffice.mail.exceptions.MailBoxIsStillSyncing
-import traveloffice.mail.exceptions.MailBoxNotExisted
+import traveloffice.mail.entities.apis.CreateScheduledMailRequestBody
+import traveloffice.mail.exceptions.*
 import traveloffice.mail.repositories.MailRepository
 import java.util.*
 
@@ -317,6 +319,7 @@ class MailService {
                     compareBy(
                         { it.name == DEFAULT_MAILBOX_DELETE },
                         { it.name == DEFAULT_MAILBOX_SPAM },
+                        { it.name == DEFAULT_MAILBOX_SCHEDULED },
                         { it.name == DEFAULT_MAILBOX_DRAFT },
                         { it.name == DEFAULT_MAILBOX_SENT },
                         { it.name == DEFAULT_MAILBOX_INBOX }
@@ -488,5 +491,74 @@ class MailService {
             logger.error(e.toString())
             throw e
         }
+    }
+
+    /**
+     * Create scheduled mail to send at specific time for given [authenticatedUser] with mail data
+     * included by [scheduledMailRequestBody] The mail will be saved at SCHEDULED mailbox. Then, it
+     * will be sent automatically at scheduled time
+     */
+    fun createScheduledMail(
+        authenticatedUser: AuthenticatedUser,
+        scheduledMailRequestBody: CreateScheduledMailRequestBody
+    ) {
+        // Parse json data to ScheduledMailMessage model
+        val gson = GsonBuilder().excludeFieldsWithoutExposeAnnotation().create()
+        val storeMessage =
+            gson.fromJson(
+                gson.toJson(scheduledMailRequestBody),
+                ScheduledMailMessage::class.java
+            )
+        storeMessage.messageId = UUID.randomUUID().toString()
+
+        // Check mail account exist or not
+        val emailAddress = storeMessage.fromAsInternetAddress.address
+        val (tenant, username) = authenticatedUser
+        val mailAccount: MailAccount = this.mailRepository.getMailAccount(tenant, username, emailAddress)
+
+        // Scheduled mailbox should be created before
+        mailRepository.getMailBoxes(tenant, username, emailAddress).find { it.name.uppercase() == DEFAULT_MAILBOX_SCHEDULED }
+            ?: throw MailBoxNotExisted("Tenant [${tenant}], user [${username}], SCHEDULED mailbox is not existed")
+
+        // Ensure number of scheduled mails is not exceeded limitation
+        // In the future, user have to pay or upgrade plan to increase service quota
+        val scheduledMails = mailRepository.getAllScheduledMails(tenant, username, emailAddress)
+        if (scheduledMails.size >= MAXIMUM_SCHEDULED_MAIL) {
+            throw ScheduledMailExceededQuota("Tenant [${tenant}], user [${username}], scheduled mail quota exceeded limitation, maximum is $MAXIMUM_SCHEDULED_MAIL")
+        }
+
+        // Download Html content from S3 Pre-signed url
+        val rawHtml = this.mailRepository.getObjectFromS3(storeMessage.htmlContent)
+        storeMessage.rawHtmlContent =
+            MailAttachment.Builder()
+                .withName("index.html")
+                .withMimeType("text/html; charset=utf-8")
+                .withInputStream(rawHtml)
+                .build()
+
+        // Copy Html content and attachments to mail folder on s3
+        this.mailRepository.storeSentEmailToS3(tenant, username, storeMessage)
+        logger.info(
+            "Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store scheduled message to s3 successfully"
+        )
+
+        // Store scheduled email to dynamo db
+        this.mailRepository.saveEmail(
+            mailAccount,
+            DEFAULT_MAILBOX_SCHEDULED,
+            storeMessage
+        )
+        logger.info(
+            "Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store scheduled email to database successfully"
+        )
+
+        // TODO: Trigger StepFunctions workflow to schedule sending mail at scheduled time
+        // Use 'Wait' state and specific timestamp
+        // Ref: https://docs.aws.amazon.com/step-functions/latest/dg/amazon-states-language-wait-state.html
+        // Architecture ref https://serverlessfirst.com/serverless-email-scheduler/
+
+
+        // Store StepFunctions execution ARN
+        // It will be used for canceling scheduled mail feature
     }
 }

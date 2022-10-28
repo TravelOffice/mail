@@ -15,6 +15,7 @@ import traveloffice.mail.common.Constant.Companion.ERROR_VALIDATOR
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.ResponseBody
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
+import traveloffice.mail.entities.apis.CreateScheduledMailRequestBody
 import traveloffice.mail.entities.apis.DeleteMailsRequestBody
 import traveloffice.mail.exceptions.ResponseException
 import traveloffice.mail.extensions.getUser
@@ -192,6 +193,25 @@ class MailController {
             )
         )
     }
+
+    /**
+     * Create scheduled mail to send at the specific time
+     * The mail will be sent automatically at the scheduled time
+     * Mail data is included by [scheduledMailRequestBody]
+     */
+    @PostMapping("/schedule-send-mail")
+    fun createScheduledMailToSend(@Valid @RequestBody scheduledMailRequestBody: CreateScheduledMailRequestBody): ResponseEntity<ResponseBody<Any>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Save schedule to system
+        mailService.createScheduledMail(authenticatedUser, scheduledMailRequestBody)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = null, message = "Get mail message successfully"
+            )
+        )
+    }
+
 
     @GetMapping("/storage")
     fun getUserMailStorage(): ResponseEntity<ResponseBody<Map<String, Any>>> {

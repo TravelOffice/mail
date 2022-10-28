@@ -10,12 +10,9 @@ import com.amazonaws.services.dynamodbv2.model.AttributeAction
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
 import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest
-import com.amazonaws.services.kms.model.NotFoundException
 import com.amazonaws.services.s3.model.*
 import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
 import com.google.gson.Gson
-import com.meilisearch.sdk.exceptions.MeiliSearchApiException
-import com.meilisearch.sdk.model.SearchResult
 import net.fortuna.ical4j.data.CalendarBuilder
 import net.fortuna.ical4j.data.ParserException
 import net.fortuna.ical4j.model.component.VEvent
@@ -31,6 +28,7 @@ import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
 import traveloffice.mail.common.Constant.Companion.DEFAULT_ENCODING
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX
+import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_SCHEDULED
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_FETCH
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_SYNC
 import traveloffice.mail.common.Constant.Companion.DEFAULT_PRESIGNED_URL_EXPIRATION
@@ -52,6 +50,7 @@ import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.search.MailMessageSearch
 import traveloffice.mail.entities.search.MailMessageSearchRequest
+import traveloffice.mail.exceptions.MailAccountNotExistException
 import traveloffice.mail.exceptions.MailAccountWasLinked
 import traveloffice.mail.exceptions.S3DownloadFileException
 import traveloffice.mail.exceptions.UnSupportedInboxType
@@ -314,7 +313,7 @@ class MailRepository {
             MailAccount::class.java,
             "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}",
             "${MAIL_ACCOUNT_INDEX}#${email}"
-        ) ?: throw NotFoundException("Mail account [$email] not found!, tenant [$tenant] username [$username]")
+        ) ?: throw MailAccountNotExistException("Mail account [$email] not found!, tenant [$tenant] username [$username]")
         //Decrypt password
         val encryptionKey = this.secretManagerService.getAWSSecretValue(ENCRYPT_SECRET_KEY)
         mailAccount.inboundPassword = mailAccount.inboundPassword.decrypt(encryptionKey)
@@ -586,6 +585,7 @@ class MailRepository {
      * @param mailAccount: The mailbox information.
      * @param messageId: The message Id.
      * @param mailMetaData: The attachment information
+     * @param mailMetaData: Mail metadata
      *
      * @return The path of attachment which saved to the local storage
      * @exception
@@ -955,6 +955,26 @@ class MailRepository {
         return Pair(Gson().toJson(ItemUtils.toSimpleMapValue<Any>(result.lastEvaluatedKey)), result.results)
     }
 
+    fun getAllScheduledMails(
+        tenant: String,
+        username: String,
+        mail: String,
+    ): List<MailMessage> {
+        val pk =
+            "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${MAIL_ACCOUNT_INDEX}#${mail}#${MAILBOX_INDEX}#${DEFAULT_MAILBOX_SCHEDULED}"
+        val sk = "$MAILBOX_INDEX#${DEFAULT_MAILBOX_SCHEDULED}"
+        // Build expression attribute values. Then, make query expression
+        val eav: Map<String, AttributeValue> = hashMapOf(
+            ":pk" to AttributeValue().withS(pk),
+            ":sk" to AttributeValue().withS(sk)
+        )
+        val queryExpression = DynamoDBQueryExpression<MailMessage>()
+            .withKeyConditionExpression("pk = :pk and begins_with(sk, :sk)")
+            .withExpressionAttributeValues(eav)
+
+        return this.dynamoDBMapper.query(MailMessage::class.java, queryExpression)
+    }
+
     /**
      * Change mailbox [from] to [to] for mail [message] of email [mail] that belongs to [tenant] [username]
      */
@@ -1154,7 +1174,7 @@ class MailRepository {
         )
 
         val batchLoadMessagesResults = this.dynamoDBMapper.batchLoad(mailMessagesKeyPairTable)
-        val messagesToDelete = batchLoadMessagesResults.values.first().toList() as List<MailMessage>
+        val messagesToDelete = batchLoadMessagesResults.values.first().toList().map { it as MailMessage }
 
         // Remove all mail message storage
         val storageKeys = messagesToDelete.map {
