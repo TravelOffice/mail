@@ -10,6 +10,7 @@ import traveloffice.mail.common.Constant.Companion.INVALID_MESSAGE
 import traveloffice.mail.common.Constant.Companion.LESS_THAN_EQUAL_MESSAGE
 import traveloffice.mail.common.Constant.Companion.ONE_OF_MESSAGE
 import traveloffice.mail.common.Constant.Companion.REQUIRED_MESSAGE
+import traveloffice.mail.entities.oauth2.OAuth2Token
 import traveloffice.mail.validators.OneOf
 import javax.validation.constraints.Email
 import javax.validation.constraints.Max
@@ -62,9 +63,12 @@ class MailAccount : BaseModel() {
     @NotBlank(message = BLANK_MESSAGE)
     lateinit var inboundUser: String
 
+    @DynamoDBAttribute(attributeName = "inboundAuthType")
+    @OneOf(array = ["password", "oauth2"], message = "$ONE_OF_MESSAGE [password, oauth2]")
+    lateinit var inboundAuthType: String
+
     @DynamoDBAttribute(attributeName = "inboundPassword")
-    @NotBlank(message = BLANK_MESSAGE)
-    lateinit var inboundPassword: String
+    var inboundPassword: String? = null
 
     @Expose
     @DynamoDBAttribute(attributeName = "outboundHost")
@@ -88,8 +92,14 @@ class MailAccount : BaseModel() {
     lateinit var outboundUser: String
 
     @DynamoDBAttribute(attributeName = "outboundPassword")
-    @NotBlank(message = BLANK_MESSAGE)
-    lateinit var outboundPassword: String
+    var outboundPassword: String? = null
+
+    @DynamoDBAttribute(attributeName = "outboundAuthType")
+    @OneOf(array = ["password", "oauth2"], message = "$ONE_OF_MESSAGE [password, oauth2]")
+    lateinit var outboundAuthType: String
+
+    @DynamoDBAttribute(attributeName = "oauth2Token")
+    var oauth2Token: OAuth2Token? = null
 
     @Expose
     @DynamoDBAttribute(attributeName = "signature")
@@ -102,6 +112,10 @@ class MailAccount : BaseModel() {
         message = "$ONE_OF_MESSAGE [Gmail, Outlook, iCloud, Yahoo, Other]"
     )
     lateinit var provider: String
+
+    @Expose
+    @DynamoDBAttribute(attributeName = "providerName")
+    var providerName: String = ""
 
     @Expose
     @DynamoDBAttribute(attributeName = "tenant")

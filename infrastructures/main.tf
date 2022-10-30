@@ -58,7 +58,12 @@ module "ECS" {
   MAIL_API_TASK_ENV = merge(
     local.env_vars.standard_vars,
     {
-      "spring.profiles.active" = "mail_api"
+      "spring.profiles.active"        = "mail_api"
+      "MAIL_GOOGLE_CLIENT_ID"         = "920440312158-ccqssgdpou4i95qo9o9rh53o9eclm3d5.apps.googleusercontent.com"
+      "MAIL_GOOGLE_CLIENT_SECRET"     = "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"
+      "MAIL_AZURE_CLIENT_ID"          = "90f206fd-2461-478b-ae42-74d90f0b992a"
+      "MAIL_AZURE_CLIENT_SECRET"      = "Z9C8Q~iJwSlhTRYCZEXFkZ2HJb_mNvVp_3O6oaW6"
+      "MAIL_OAUTH2_REDIRECT_ENDPOINT" = format("%s%s%s", "https://sso.", module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.name, "/mail/callback")
     }
   )
   MAIL_QUEUE_TASK_ENV = merge(

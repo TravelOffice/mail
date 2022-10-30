@@ -14,6 +14,7 @@ import traveloffice.mail.common.Constant.Companion.ERROR_UNKNOWN
 import traveloffice.mail.common.Constant.Companion.ERROR_VALIDATOR
 import traveloffice.mail.entities.*
 import traveloffice.mail.entities.ResponseBody
+import traveloffice.mail.entities.apis.AutoLinkEmailRequest
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.entities.apis.DeleteMailsRequestBody
 import traveloffice.mail.exceptions.ResponseException
@@ -45,6 +46,35 @@ class MailController {
         return ResponseEntity.ok(
             ResponseBody(
                 code = "SUCCESS", data = mailAccount.toJson(), message = "Link successfully"
+            )
+        )
+    }
+
+    @GetMapping("/autolink-email")
+    fun getEmailServerInformation(
+        @Valid
+        @Email(message = Constant.INVALID_MESSAGE)
+        @NotBlank(message = Constant.REQUIRED_MESSAGE)
+        @RequestParam("email") email: String,
+    ): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        val information = mailService.getEmailServerInformation(authenticatedUser, email)
+
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = information?.toMap(), message = "Get email server information successfully"
+            )
+        )
+    }
+
+    @PostMapping("/autolink-email")
+    fun autolinkEmail(@Valid @RequestBody autoLinkEmailRequest: AutoLinkEmailRequest): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        mailService.autolinkEmail(autoLinkEmailRequest, authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = null, message = "Auto link email successfully"
             )
         )
     }
@@ -212,7 +242,9 @@ class MailController {
         val accountsStorage = mailService.getUserMailStorage(authenticatedUser)
         return ResponseEntity.ok(
             ResponseBody(
-                code = "SUCCESS", data = accountsStorage, message = "Get user's mail accounts storage information successfully"
+                code = "SUCCESS",
+                data = accountsStorage,
+                message = "Get user's mail accounts storage information successfully"
             )
         )
     }

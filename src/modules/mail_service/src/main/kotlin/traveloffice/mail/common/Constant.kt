@@ -11,6 +11,7 @@ class Constant {
         const val SUCCESS_INDEX = "SUCCESS"
         const val FAILED_INDEX = "FAILED"
         const val UID_INDEX = "UID"
+        const val CODE_VERIFIER_INDEX = "CODE_VERIFIER"
         const val DEFAULT_MAX_NUMBER_MESSAGE = 5
         const val DEFAULT_WAIT_TIME_SECOND = 5
         const val DEFAULT_VISIBLE_TIME_OUT = 3600
