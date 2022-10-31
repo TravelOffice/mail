@@ -160,6 +160,17 @@ class MailController {
         )
     }
 
+    @PostMapping("/draft-email")
+    fun draftEmail(@Valid @RequestBody sendMailRequestPayload: SendMailRequestPayload): ResponseEntity<ResponseBody<Map<String, Any>>> {
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        val mailMessage = mailService.saveDraft(authenticatedUser, sendMailRequestPayload)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS", data = mailMessage.toJson(), message = "Save draft successfully"
+            )
+        )
+    }
+
     /**
      * API to get mail message with [mailId] for given [email]
      *

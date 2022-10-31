@@ -46,21 +46,7 @@ class MailService {
      * Return [MailMessage] object
      */
     fun sendEmail(authenticatedUser: AuthenticatedUser, sendMailRequestPayload: SendMailRequestPayload): MailMessage {
-        val storeMessage = MailMessage()
-        storeMessage.subject = sendMailRequestPayload.subject
-        storeMessage.htmlContent = sendMailRequestPayload.htmlContent
-        storeMessage.from = sendMailRequestPayload.from
-        storeMessage.attachments = sendMailRequestPayload.attachments?.map {
-            MailAttachment.Builder()
-                .withName(it.name)
-                .withEncoding(it.encoding)
-                .withMimeType(it.mimeType)
-                .withPath(it.path)
-                .build()
-        }
-        storeMessage.to = BriefAddress.Builder().withAddresses(sendMailRequestPayload.to).build()
-        storeMessage.cc = sendMailRequestPayload.cc?.let { BriefAddress.Builder().withAddresses(it).build() }
-        storeMessage.bcc = sendMailRequestPayload.bcc?.let { BriefAddress.Builder().withAddresses(it).build() }
+        val storeMessage = this.parseMailRequestPayload(sendMailRequestPayload)
         val sendingMessage = storeMessage.clone()
 
         // Check mail account exist or not
@@ -72,12 +58,6 @@ class MailService {
             emailAddress
         )
 
-        // Download Html content from S3 Pre-signed url
-        sendingMessage.rawHtmlContent = MailAttachment.Builder()
-            .withName("index.html")
-            .withMimeType("text/html; charset=utf-8")
-            .withInputStream(this.mailRepository.getObjectFromS3(sendingMessage.htmlContent))
-            .build()
         // Download attachments from s3 bucket
         if (sendingMessage.attachments != null) {
             sendingMessage.attachments?.forEach {
@@ -86,19 +66,83 @@ class MailService {
         }
 
         // Send email
-        storeMessage.messageId = UUID.randomUUID().toString()
         this.mailRepository.sendEmail(mailAccount, sendingMessage)
         logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Send email successfully")
 
         storeMessage.sentDate = Date().time
 
-        // Copy Html content and attachments to mail folder on s3
-        this.mailRepository.storeSentEmailToS3(tenant, username, storeMessage)
-        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent message to s3 successfully")
+        // Check mail is DRAFT or not
+        if (sendMailRequestPayload.messageId === null) {
+            // Copy Html content and attachments to mail folder on s3
+            this.mailRepository.storeEmailToS3(tenant, username, storeMessage)
+            logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent message to s3 successfully")
 
-        // Store email to dynamo db
-        this.mailRepository.saveEmail(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
-        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent email to database successfully")
+            // Store email to dynamo db
+            this.mailRepository.saveEmail(mailAccount, DEFAULT_MAILBOX_SENT, storeMessage)
+            logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store sent email to database successfully")
+        } else {
+            this.mailRepository.changeMailboxOfMessage(tenant, username, DEFAULT_MAILBOX_DRAFT, DEFAULT_MAILBOX_SENT, emailAddress, storeMessage.messageId, storeMessage.sentDate)
+            logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Change email from DRAFT to SENT successfully")
+        }
+
+        return storeMessage
+    }
+
+    /**
+     * Parse [requestPayload] to [MailMessage]
+     * Return [MailMessage] object
+     */
+    private fun parseMailRequestPayload(requestPayload: SendMailRequestPayload): MailMessage {
+        val storeMessage = MailMessage()
+        storeMessage.messageId = if(requestPayload.messageId !== null) requestPayload.messageId else UUID.randomUUID().toString()
+        storeMessage.subject = requestPayload.subject
+        storeMessage.htmlContent = requestPayload.htmlContent
+        storeMessage.from = requestPayload.from
+        storeMessage.attachments = requestPayload.attachments?.map {
+            MailAttachment.Builder()
+                .withName(it.name)
+                .withEncoding(it.encoding)
+                .withMimeType(it.mimeType)
+                .withPath(it.path)
+                .build()
+        }
+        storeMessage.to = BriefAddress.Builder().withAddresses(requestPayload.to).build()
+        storeMessage.cc = requestPayload.cc?.let { BriefAddress.Builder().withAddresses(it).build() }
+        storeMessage.bcc = requestPayload.bcc?.let { BriefAddress.Builder().withAddresses(it).build() }
+        // Download Html content from S3 Pre-signed url
+        storeMessage.rawHtmlContent = MailAttachment.Builder()
+            .withName("index.html")
+            .withMimeType("text/html; charset=utf-8")
+            .withInputStream(this.mailRepository.getObjectFromS3(storeMessage.htmlContent))
+            .build()
+        return storeMessage
+    }
+
+    /**
+     * [authenticatedUser] user draft email with [draftMailRequestPayload]
+     * Return [MailMessage] object
+     */
+    fun saveDraft(authenticatedUser: AuthenticatedUser, draftMailRequestPayload: SendMailRequestPayload): MailMessage {
+        val storeMessage = this.parseMailRequestPayload(draftMailRequestPayload)
+        // Check mail account exist or not
+        val emailAddress = storeMessage.fromAsInternetAddress.address
+        val (tenant, username) = authenticatedUser
+        val mailAccount: MailAccount = this.mailRepository.getMailAccount(
+            tenant,
+            username,
+            emailAddress
+        )
+
+        // Copy Html content and attachments to mail folder on s3
+        this.mailRepository.storeEmailToS3(tenant, username, storeMessage)
+        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store draft message to s3 successfully")
+
+        // Dummy sentDate for DRAFT email to support search engine
+        storeMessage.sentDate = Date().time
+
+        // Store draft email to dynamo db
+        this.mailRepository.saveEmail(mailAccount, DEFAULT_MAILBOX_DRAFT, storeMessage)
+        logger.info("Tenant [${tenant}], User [${username}], Mail ID [${storeMessage.messageId}], Store draft email to database successfully")
 
         return storeMessage
     }

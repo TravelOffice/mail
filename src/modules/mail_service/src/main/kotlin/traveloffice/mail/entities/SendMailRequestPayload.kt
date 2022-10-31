@@ -5,7 +5,9 @@ import javax.validation.Valid
 import javax.validation.constraints.NotBlank
 import javax.validation.constraints.Size
 
-data class SendMailRequestPayload(
+open class SendMailRequestPayload(
+    val messageId: String?,
+
     val subject: String,
 
     @field:NotBlank(message = BLANK_MESSAGE)
