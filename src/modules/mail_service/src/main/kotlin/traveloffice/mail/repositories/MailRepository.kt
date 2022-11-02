@@ -5,7 +5,6 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDB
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression
 import com.amazonaws.services.dynamodbv2.datamodeling.KeyPair
-import com.amazonaws.services.dynamodbv2.document.Attribute
 import com.amazonaws.services.dynamodbv2.document.ItemUtils
 import com.amazonaws.services.dynamodbv2.model.AttributeAction
 import com.amazonaws.services.dynamodbv2.model.AttributeValue
@@ -15,8 +14,6 @@ import com.amazonaws.services.kms.model.NotFoundException
 import com.amazonaws.services.s3.model.*
 import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
 import com.google.gson.Gson
-import com.meilisearch.sdk.exceptions.MeiliSearchApiException
-import com.meilisearch.sdk.model.SearchResult
 import net.fortuna.ical4j.data.CalendarBuilder
 import net.fortuna.ical4j.data.ParserException
 import net.fortuna.ical4j.model.component.VEvent
@@ -30,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.annotation.DependsOn
 import org.springframework.stereotype.Repository
 import tech.blueglacier.email.Attachment
+import traveloffice.mail.common.Constant.Companion.CODE_VERIFIER_INDEX
 import traveloffice.mail.common.Constant.Companion.DEFAULT_ENCODING
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX
 import traveloffice.mail.common.Constant.Companion.DEFAULT_NUMBER_OF_MAILS_TO_FETCH
@@ -51,6 +49,9 @@ import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_CONTEXT
 import traveloffice.mail.common.Constant.Companion.TESTING_MAIL_SUBJECT
 import traveloffice.mail.common.Constant.Companion.USER_INDEX
 import traveloffice.mail.entities.*
+import traveloffice.mail.entities.apis.AutoLinkEmailRequest
+import traveloffice.mail.entities.oauth2.CodeVerifier
+import traveloffice.mail.entities.oauth2.OAuth2User
 import traveloffice.mail.entities.search.MailMessageSearch
 import traveloffice.mail.entities.search.MailMessageSearchRequest
 import traveloffice.mail.exceptions.MailAccountWasLinked
@@ -61,6 +62,7 @@ import traveloffice.mail.extensions.encodeToURL
 import traveloffice.mail.extensions.encrypt
 import traveloffice.mail.extensions.toSearchIndex
 import traveloffice.mail.providers.*
+import traveloffice.mail.providers.oauth2.OAuth2ProviderFactory
 import traveloffice.mail.services.SecretManagerService
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -101,6 +103,9 @@ class MailRepository {
 
     @Autowired
     lateinit var meiliSearchProvider: MeiliSearchProvider
+
+    @Autowired
+    lateinit var oAuth2ProviderFactory: OAuth2ProviderFactory
 
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
@@ -220,6 +225,7 @@ class MailRepository {
      */
     fun validateMailAccount(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser) {
         logger.info("Validate information of MailAccount [$mailAccount]")
+
         val mailProvider = mailProviderFactory.makeProvider(mailAccount.protocol)
         // Validate existing email
         this.checkExistingAccount(mailAccount, authenticatedUser)
@@ -318,10 +324,24 @@ class MailRepository {
         ) ?: throw NotFoundException("Mail account [$email] not found!, tenant [$tenant] username [$username]")
         //Decrypt password
         val encryptionKey = this.secretManagerService.getAWSSecretValue(ENCRYPT_SECRET_KEY)
-        mailAccount.inboundPassword = mailAccount.inboundPassword.decrypt(encryptionKey)
-        mailAccount.outboundPassword = mailAccount.outboundPassword.decrypt(encryptionKey)
-        mailAccount.tenant = tenant
-        mailAccount.username = username
+        mailAccount.inboundPassword = mailAccount.inboundPassword?.decrypt(encryptionKey)
+        mailAccount.outboundPassword = mailAccount.outboundPassword?.decrypt(encryptionKey)
+        val oauth2Token = mailAccount.oauth2Token
+        if (oauth2Token != null) {
+            // Check the exp date
+            val expDate = oauth2Token.expires_in
+            val now = Date().time.div(1000L)
+            if (expDate >= now) {
+                // refresh token
+                val oAuth2Provider = oAuth2ProviderFactory.makeProvider(mailAccount.provider)
+                val newToken = oAuth2Provider.refreshEmailToken(oauth2Token.refresh_token!!)
+                //Refactor the exp time of oauth token, convert to epoch time
+                val expTimeInSecond = newToken!!.expires_in
+                newToken.expires_in = DateUtils.addSeconds(Date(), expTimeInSecond.toInt()).time.div(1000L)
+                mailAccount.oauth2Token = newToken
+                dynamoDBMapper.save(mailAccount)
+            }
+        }
         return mailAccount
     }
 
@@ -433,6 +453,48 @@ class MailRepository {
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
         val mailAccountBucketKey = "$tenant/$username"
         return s3Provider.getObjectsSize(mailBucket, mailAccountBucketKey)
+    }
+
+    /**
+     * Get OAuth login url for given [provider] [username] that belong to [tenant]
+     *
+     * Returns OAuth url
+     */
+    fun getOAuth2Url(tenant: String, username: String, provider: String, mail: String): String {
+        val oAuth2Provider = oAuth2ProviderFactory.makeProvider(provider)
+        val codeChallenge = oAuth2Provider.generateCodeChallenge(provider)
+        codeChallenge.pk = "$TENANT_INDEX#$tenant#$USER_INDEX#$username$CODE_VERIFIER_INDEX"
+        // Store code challenge to dynamodb
+        dynamoDBMapper.save(codeChallenge)
+        // Generate OAuth login url
+        return oAuth2Provider.generateOAuth2LoginUrl(codeChallenge.codeChallenge, codeChallenge.state, mail).toString()
+    }
+
+    /**
+     * Get OAuth user information for given [autoLinkEmailRequest] that belong to [tenant] [username]
+     *
+     * Returns OAuth url
+     */
+    fun getOAuthUserInfo(tenant: String, username: String, autoLinkEmailRequest: AutoLinkEmailRequest): OAuth2User {
+        val state = autoLinkEmailRequest.state!!
+        val code = autoLinkEmailRequest.code!!
+
+        val codeVerifier = dynamoDBMapper.load(
+            CodeVerifier::class.java,
+            "$TENANT_INDEX#$tenant#$USER_INDEX#$username$CODE_VERIFIER_INDEX",
+            state
+        ) ?: throw Exception("Code Verifier has expired or does not exist tenant [$tenant] username [$username]")
+
+        val oAuth2Provider = oAuth2ProviderFactory.makeProvider(codeVerifier.provider)
+        val oAuth2User = oAuth2Provider.getUserInfo(codeVerifier.code, code)
+
+        //Refactor the exp time of oauth token, convert to epoch time
+        val expTimeInSecond = oAuth2User.oAuth2Token!!.expires_in
+        oAuth2User.oAuth2Token!!.expires_in = DateUtils.addSeconds(Date(), expTimeInSecond.toInt()).time.div(1000L)
+
+        // Remove code verifier after first time get OAuth token
+        dynamoDBMapper.delete(codeVerifier)
+        return oAuth2User
     }
 
     /**
@@ -728,8 +790,8 @@ class MailRepository {
         mailAccount.pk = userPk
         mailAccount.sk = "$MAIL_ACCOUNT_INDEX#${mailAccount.email}"
         // Encrypt mail password
-        mailAccount.inboundPassword = mailAccount.inboundPassword.encrypt(encryptionKey)
-        mailAccount.outboundPassword = mailAccount.outboundPassword.encrypt(encryptionKey)
+        mailAccount.inboundPassword = mailAccount.inboundPassword?.encrypt(encryptionKey)
+        mailAccount.outboundPassword = mailAccount.outboundPassword?.encrypt(encryptionKey)
         // Set tenant, username for mail account
         mailAccount.tenant = tenant
         mailAccount.username = username
@@ -868,9 +930,21 @@ class MailRepository {
         val tenantKeyPrefix = "${tenant}/${username}/${email}/${messageId}"
         val htmlObjectKey = "${tenantKeyPrefix}/htmlContent/index.html"
         if (mailMessage.htmlContent.contains(S3_TEMPORARY_UPLOAD_FOLDER)) {
-            this.s3Provider.moveObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
+            this.s3Provider.moveObject(
+                mailBucket,
+                mailMessage.htmlContent,
+                htmlObjectKey,
+                "text/html",
+                DEFAULT_ENCODING
+            )
         } else {
-            this.s3Provider.copyObject(mailBucket, mailMessage.htmlContent, htmlObjectKey, "text/html", DEFAULT_ENCODING)
+            this.s3Provider.copyObject(
+                mailBucket,
+                mailMessage.htmlContent,
+                htmlObjectKey,
+                "text/html",
+                DEFAULT_ENCODING
+            )
         }
         mailMessage.htmlContent = htmlObjectKey.encodeToURL()
         mailMessage.size = this.s3Provider.getObjectSize(mailBucket, htmlObjectKey)
@@ -1138,7 +1212,7 @@ class MailRepository {
     }
 
     /**
-     * Batch delete mails [messages] of email [messagesId] that belongs to [tenant] [username]
+     * Batch delete mails of email [messagesId] that belongs to [tenant] [username]
      * Do following steps:
      * - Batch load message items
      * - Batch delete the s3 content
@@ -1168,11 +1242,11 @@ class MailRepository {
         )
 
         val batchLoadMessagesResults = this.dynamoDBMapper.batchLoad(mailMessagesKeyPairTable)
-        val messagesToDelete = batchLoadMessagesResults.values.first().toList() as List<MailMessage>
+        val messagesToDelete = batchLoadMessagesResults.values.first().toList()
 
         // Remove all mail message storage
         val storageKeys = messagesToDelete.map {
-            return@map KeyVersion("${tenant}/${username}/${mail}/${it.messageId}")
+            return@map KeyVersion("${tenant}/${username}/${mail}/${(it as MailMessage).messageId}")
         }
         val mailBucket = this.secretManagerService.getAWSSecretValue(MAIL_BUCKET)
         val multiObjectDeleteRequest: DeleteObjectsRequest = DeleteObjectsRequest(mailBucket)
@@ -1181,7 +1255,7 @@ class MailRepository {
         this.s3Provider.deleteObjects(multiObjectDeleteRequest)
 
         // Delete message from search engine
-        val searchMessagesIdToDelete = messagesToDelete.map { it.messageId.toSearchIndex() }
+        val searchMessagesIdToDelete = messagesToDelete.map { (it as MailMessage).messageId.toSearchIndex() }
         this.meiliSearchProvider.deleteDocuments(mailAccount.searchIndex, Gson().toJson(searchMessagesIdToDelete))
 
         // Batch delete list of messages

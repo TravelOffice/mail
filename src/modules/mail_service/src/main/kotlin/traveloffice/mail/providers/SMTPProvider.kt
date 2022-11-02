@@ -36,16 +36,22 @@ class SMTPProvider {
         prop["mail.smtp.host"] = mailAccount.outboundHost
         prop["mail.smtp.port"] = mailAccount.outboundPort
         prop["mail.smtp.auth"] = "true"
-        prop["mail.smtp.timout"] = DEFAULT_MAIL_TIMEOUT
+        prop["mail.smtp.timeout"] = DEFAULT_MAIL_TIMEOUT
         prop["mail.smtp.connectiontimeout"] = DEFAULT_MAIL_TIMEOUT
         prop["mail.smtp.writetimeout"] = DEFAULT_MAIL_TIMEOUT
         when (mailAccount.outboundSslMode) {
             "ssl/tls" -> prop["mail.smtp.ssl.enable"] = "true" //SSL
             "starttls" -> prop["mail.smtp.starttls.enable"] = "true" //TLS
         }
+        if (mailAccount.outboundAuthType == "oauth2")
+            prop["mail.smtp.auth.mechanisms"] = "XOAUTH2"
         return Session.getInstance(prop, object : Authenticator() {
             override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(mailAccount.outboundUser, mailAccount.outboundPassword)
+                return if (mailAccount.outboundAuthType == "oauth2") {
+                    PasswordAuthentication(mailAccount.outboundUser, mailAccount.oauth2Token!!.access_token)
+                } else {
+                    PasswordAuthentication(mailAccount.outboundUser, mailAccount.outboundPassword)
+                }
             }
         })
     }

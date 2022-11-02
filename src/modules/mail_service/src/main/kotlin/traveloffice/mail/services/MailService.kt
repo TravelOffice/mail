@@ -1,6 +1,8 @@
 package traveloffice.mail.services
 
 import com.amazonaws.services.kms.model.NotFoundException
+import com.google.common.net.InternetDomainName
+import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -9,8 +11,13 @@ import kotlinx.coroutines.sync.withLock
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.DependsOn
+import org.springframework.core.io.Resource
 import org.springframework.stereotype.Service
+import org.xbill.DNS.Lookup
+import org.xbill.DNS.MXRecord
+import org.xbill.DNS.Type
 import traveloffice.mail.common.Constant
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DELETE
 import traveloffice.mail.common.Constant.Companion.DEFAULT_MAILBOX_DRAFT
@@ -22,13 +29,17 @@ import traveloffice.mail.common.Constant.Companion.MAIL_CDN
 import traveloffice.mail.common.GracefulAction
 import traveloffice.mail.common.SyncMessageLock
 import traveloffice.mail.entities.*
+import traveloffice.mail.entities.apis.AutoLinkEmailRequest
 import traveloffice.mail.entities.apis.ChangeMailboxRequestBody
 import traveloffice.mail.entities.apis.DeleteMailsRequestBody
+import traveloffice.mail.entities.oauth2.EmailServerRecord
+import traveloffice.mail.entities.oauth2.OAuth2User
 import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.exceptions.MailBoxNotExisted
 import traveloffice.mail.repositories.MailRepository
 import java.util.*
+import java.util.stream.Collectors
 
 @Service
 @DependsOn("DynamoDBMapper")
@@ -40,6 +51,9 @@ class MailService {
     lateinit var mailRepository: MailRepository
 
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
+
+    @Value("classpath:isp.records.predefined.json")
+    lateinit var ispResource: Resource
 
     /**
      * [authenticatedUser] user send email with [sendMailRequestPayload]
@@ -327,6 +341,72 @@ class MailService {
         throw e
     }
 
+    fun autolinkEmail(autoLinkEmailRequest: AutoLinkEmailRequest, authenticatedUser: AuthenticatedUser) = try {
+        val (tenant, username) = authenticatedUser
+        var isOAuth = false
+        var user: OAuth2User? = null
+
+        // Validate authentication params
+        if (autoLinkEmailRequest.password == null) {
+            if (autoLinkEmailRequest.code == null || autoLinkEmailRequest.state == null)
+                throw Exception("Missing authentication params")
+            user = mailRepository.getOAuthUserInfo(tenant, username, autoLinkEmailRequest)
+            isOAuth = true
+        }
+
+        // Build mail account information
+        val mailAccount = MailAccount()
+        if (isOAuth) {
+            mailAccount.email = user!!.email
+            mailAccount.name = user.name
+            mailAccount.oauth2Token = user.oAuth2Token
+        } else {
+            mailAccount.email = autoLinkEmailRequest.email
+            mailAccount.name = autoLinkEmailRequest.name
+            mailAccount.inboundPassword = autoLinkEmailRequest.password
+            mailAccount.outboundPassword = autoLinkEmailRequest.password
+        }
+
+        val emailServerInfo = getEmailServerInformation(authenticatedUser, mailAccount.email)
+            ?: throw Exception("Unsupported auth type when manual link email")
+        val (name, provider, _, incoming, outgoing) = emailServerInfo
+
+        mailAccount.protocol = incoming.type
+        mailAccount.provider = provider
+        mailAccount.providerName = name
+        mailAccount.tenant = tenant
+        mailAccount.username = username
+
+        // Inbound information
+        mailAccount.inboundHost = incoming.host
+        mailAccount.inboundAuthType = incoming.authentication_method
+        mailAccount.inboundSslMode = incoming.connection_security
+        mailAccount.inboundPort = incoming.port
+        if (incoming.username_login == true) {
+            mailAccount.inboundUser = mailAccount.email.substringBefore("@")
+        } else {
+            mailAccount.inboundUser = mailAccount.email
+        }
+
+        // Outbound information
+        mailAccount.outboundHost = outgoing.host
+        mailAccount.outboundAuthType = outgoing.authentication_method
+        mailAccount.outboundSslMode = outgoing.connection_security
+        mailAccount.outboundPort = outgoing.port
+        if (outgoing.username_login == true) {
+            mailAccount.outboundUser = mailAccount.email.substringBefore("@")
+        } else {
+            mailAccount.outboundUser = mailAccount.email
+        }
+
+        // Link email to the TO systems
+        this.linkEmail(mailAccount, authenticatedUser)
+        logger.info("Link mail account successfully")
+    } catch (e: Exception) {
+        logger.error(e.toString())
+        throw e
+    }
+
     /**
      * UnLink mail account for given [mail] which related to [authenticatedUser]
      * The user [authenticatedUser] contains **tenant** and **username** values
@@ -402,6 +482,58 @@ class MailService {
             return mapOf(
                 "totalStorage" to totalStorage
             )
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            throw e
+        }
+    }
+
+    /**
+     * Get mail server information from [mail] for [authenticatedUser]
+     *
+     * Returns mail accounts storage information
+     */
+    fun getEmailServerInformation(authenticatedUser: AuthenticatedUser, mail: String): EmailServerRecord? {
+        try {
+            val emailServerRecords =
+                Gson().fromJson(String(ispResource.inputStream.readAllBytes()), Array<EmailServerRecord>::class.java).toList()
+            val domain = mail.substringAfter("@")
+            // If domain is outlook.com
+            if (domain == "outlook.com") {
+                return emailServerRecords.find { it.provider == "outlook" }
+            }
+            // Find domain in email server records first
+            var serverInfo = emailServerRecords.find { it.domains.contains(domain) }
+            if (serverInfo == null) {
+                // query the MX record to find isp domain name
+                val lookup = Lookup(domain, Type.MX)
+                val mxRecords = lookup.run()
+                if (mxRecords.isNullOrEmpty()) {
+                    return null
+                }
+                val targets = mxRecords.map {
+                    val mxDomain = (it as MXRecord).target.canonicalize().toString(true)
+                    InternetDomainName.from(mxDomain).topPrivateDomain().toString()
+                }
+                val targetsWithoutDuplicate = targets.stream().distinct().collect(Collectors.toList())
+                serverInfo = emailServerRecords.find {
+                    for (target in targetsWithoutDuplicate) {
+                        if (it.domains.contains(target))
+                            return@find true
+                    }
+                    return@find false
+                }
+                if (serverInfo == null) return null
+            }
+
+            if (serverInfo.incoming.authentication_method == "oauth2"
+                || serverInfo.outgoing.authentication_method == "oauth2"
+            ) {
+                // Generate the oauth url
+                val (tenant, username) = authenticatedUser
+                serverInfo.oauthUrl = mailRepository.getOAuth2Url(tenant, username, serverInfo.provider, mail)
+            }
+            return serverInfo
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e

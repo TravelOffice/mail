@@ -39,6 +39,7 @@ dependencies {
 	implementation("org.jsoup:jsoup:1.15.3")
 	implementation("org.mnode.ical4j:ical4j:3.2.5")
 	implementation("com.meilisearch.sdk:meilisearch-java:0.7.2")
+	implementation("dnsjava:dnsjava:3.5.1")
 }
 
 tasks.withType<KotlinCompile> {
@@ -46,4 +47,8 @@ tasks.withType<KotlinCompile> {
 		freeCompilerArgs = listOf("-Xjsr305=strict", "-opt-in=kotlin.RequiresOptIn")
 		jvmTarget = "17"
 	}
+}
+
+java.sourceSets["main"].java {
+	srcDir("src/main/resources")
 }

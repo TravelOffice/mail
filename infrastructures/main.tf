@@ -11,6 +11,11 @@ locals {
       SECRET_MANAGER_ID                                      = module.REMOTE_STATE.STATE.MARKETING.backend.secret_manager.id
       "spring.security.oauth2.resourceserver.jwt.issuer-uri" = "https://cognito-idp.${var.AWS_REGION}.amazonaws.com/${module.REMOTE_STATE.STATE.COMMON_CONFIG.cognito.user_pool.id}"
       MAX_MESSAGE_BRIEF_CONTENT_SIZE                         = "200"
+      MAIL_GOOGLE_CLIENT_ID                                  = "920440312158-ccqssgdpou4i95qo9o9rh53o9eclm3d5.apps.googleusercontent.com"
+      MAIL_GOOGLE_CLIENT_SECRET                              = "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"
+      MAIL_AZURE_CLIENT_ID                                   = "90f206fd-2461-478b-ae42-74d90f0b992a"
+      MAIL_AZURE_CLIENT_SECRET                               = "Z9C8Q~iJwSlhTRYCZEXFkZ2HJb_mNvVp_3O6oaW6"
+      MAIL_OAUTH2_REDIRECT_ENDPOINT                          = format("%s%s%s", "https://sso.", module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.name, "/mail/callback")
     }
   }
 

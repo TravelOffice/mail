@@ -40,6 +40,11 @@ abstract class MailProvider {
         }
         properties["mail.$inboundType.timeout"] = DEFAULT_MAIL_TIMEOUT
         properties["mail.$inboundType.connectiontimeout"] = DEFAULT_MAIL_TIMEOUT
+        if (mailAccount.inboundAuthType == "oauth2") {
+            properties["mail.$inboundType.auth.mechanisms"] = "XOAUTH2"
+            properties["mail.$inboundType.auth.login.disable"] = "true"
+            properties["mail.$inboundType.auth.plain.disable"] = "true"
+        }
         return properties
     }
 
@@ -101,10 +106,14 @@ abstract class MailProvider {
     abstract fun getInRelyTo(message: Message): String?
 
     private fun emailStoreConnect(properties: Properties, mailAccount: MailAccount): Store {
-        val emailSession = Session.getDefaultInstance(properties)
+        val emailSession = Session.getInstance(properties)
         // Create the IMAP/POP3 store object and connect with the pop server
         val store = emailSession.getStore(mailAccount.inboundType)
-        store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
+        if (mailAccount.inboundAuthType == "oauth2") {
+            store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.oauth2Token!!.access_token)
+        } else {
+            store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
+        }
         return store
     }
 
@@ -166,10 +175,8 @@ abstract class MailProvider {
     fun validateIncomingServer(mailAccount: MailAccount) {
         val properties = this.getProperty(mailAccount)
         try {
-            val emailSession = Session.getInstance(properties)
             // Create the IMAP/POP3 store object and connect with the pop server
-            val store = emailSession.getStore(mailAccount.inboundType)
-            store.connect(mailAccount.inboundHost, mailAccount.inboundUser, mailAccount.inboundPassword)
+            val store = this.emailStoreConnect(properties, mailAccount)
             if (!this.isSupportUIDL(store))
                 throw UnSupportedProvider("Provider not supported UIDL")
             this.emailStoreDisconnect(store)

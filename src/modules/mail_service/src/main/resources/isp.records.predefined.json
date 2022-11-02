@@ -1,0 +1,111 @@
+[
+  {
+    "name": "Gmail",
+    "provider": "gmail",
+    "domains": [
+      "gmail.com",
+      "google.com",
+      "googlemail.com"
+    ],
+    "incoming": {
+      "type": "imap",
+      "host": "imap.gmail.com",
+      "port": "993",
+      "connection_security": "ssl/tls",
+      "authentication_method": "oauth2"
+    },
+    "outgoing": {
+      "type": "smtp",
+      "host": "imap.gmail.com",
+      "port": "465",
+      "connection_security": "ssl/tls",
+      "authentication_method": "oauth2"
+    }
+  },
+  {
+    "name": "Exchange and Office 365",
+    "provider": "office365",
+    "domains": [
+      "outlook.com"
+    ],
+    "incoming": {
+      "type": "imap",
+      "host": "outlook.office365.com",
+      "port": "993",
+      "connection_security": "ssl/tls",
+      "authentication_method": "oauth2"
+    },
+    "outgoing": {
+      "type": "smtp",
+      "host": "smtp.office365.com",
+      "port": "587",
+      "connection_security": "starttls",
+      "authentication_method": "oauth2"
+    }
+  },
+  {
+    "name": "Outlook, Hotmail and Live",
+    "provider": "outlook",
+    "domains": [
+      "hotmail.com",
+      "live.com"
+    ],
+    "incoming": {
+      "type": "imap",
+      "host": "outlook.office365.com",
+      "port": "993",
+      "connection_security": "ssl/tls",
+      "authentication_method": "password"
+    },
+    "outgoing": {
+      "type": "smtp",
+      "host": "smtp.office365.com",
+      "port": "587",
+      "connection_security": "starttls",
+      "authentication_method": "password"
+    }
+  },
+  {
+    "name": "Viettel",
+    "provider": "viettel",
+    "domains": [
+      "viettel.com.vn"
+    ],
+    "incoming": {
+      "type": "pop3",
+      "host": "pop3.viettel.com.vn",
+      "port": "995",
+      "connection_security": "ssl/tls",
+      "authentication_method": "password"
+    },
+    "outgoing": {
+      "type": "smtp",
+      "host": "smtp.viettel.com.vn",
+      "port": "465",
+      "connection_security": "ssl/tls",
+      "authentication_method": "password"
+    }
+  },
+  {
+    "name": "iCloud",
+    "provider": "icloud",
+    "domains": [
+      "icloud.com"
+    ],
+    "incoming": {
+      "type": "imap",
+      "host": "imap.mail.me.com",
+      "port": "993",
+      "connection_security": "ssl/tls",
+      "authentication_method": "password",
+      "username_login": "true"
+    },
+    "outgoing": {
+      "type": "smtp",
+      "host": "smtp.mail.me.com",
+      "port": "587",
+      "connection_security": "starttls",
+      "authentication_method": "password"
+    }
+  }
+]
