@@ -98,6 +98,7 @@ class SMTPProvider {
             throw ResponseException(e.message.toString(), ERROR_EMAIL_ADDRESS_IS_INVALID)
         } catch (e: Exception) {
             logger.error(e.stackTraceToString())
+            throw e;
         }
     }
 
