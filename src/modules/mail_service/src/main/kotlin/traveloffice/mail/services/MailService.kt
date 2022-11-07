@@ -62,6 +62,7 @@ class MailService {
     fun sendEmail(authenticatedUser: AuthenticatedUser, sendMailRequestPayload: SendMailRequestPayload): MailMessage {
         val storeMessage = this.parseMailRequestPayload(sendMailRequestPayload)
         val sendingMessage = storeMessage.clone()
+        sendingMessage.rawHtmlContent = storeMessage.rawHtmlContent
 
         // Check mail account exist or not
         val emailAddress = sendingMessage.fromAsInternetAddress.address
