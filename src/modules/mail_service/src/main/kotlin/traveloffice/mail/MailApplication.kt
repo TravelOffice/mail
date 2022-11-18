@@ -46,7 +46,8 @@ class MailApplication : ApplicationRunner {
     fun corsConfigurer(): WebMvcConfigurer? {
         return object : WebMvcConfigurer {
             override fun addCorsMappings(registry: CorsRegistry) {
-                registry.addMapping("/**").allowedOrigins("*")
+                val allowedOrigins = secretManagerService.getEnv("CORS_ALLOW_ORIGINS")
+                registry.addMapping("/**").allowedOrigins(allowedOrigins).allowedMethods("*")
             }
         }
     }
