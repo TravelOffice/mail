@@ -26,7 +26,7 @@ locals {
 
 module "ECS_CLUSTER" {
   source  = "terraform-aws-modules/ecs/aws"
-  version = "4.1.1"
+  version = "4.0.1"
 
   cluster_name = local.cluster_name
 
@@ -45,9 +45,9 @@ resource "aws_ecr_repository" "mail" {
   name = lower("${var.ENV}-${var.FEATURE_NAME}")
 }
 
-module "ECS_MAIL_DOCKER_IMAGE" {
-  source  = "terraform-aws-modules/lambda/aws//modules/docker-build"
-  version = "2.34.0"
+module "docker-build" {
+  source  = "TravelOffice/docker-build/aws"
+  version = "0.0.2"
 
   ecr_repo      = split("/", aws_ecr_repository.mail.repository_url)[1]
   ecr_repo_tags = var.TAGS
@@ -97,7 +97,7 @@ module "ECS_MAIL_API_TASK_DEFINITION" {
   source        = "./task_definition/mail_api"
   TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}_api")
   TASK_ROLE_ARN = module.ROLE.arn
-  IMAGE_URI     = module.ECS_MAIL_DOCKER_IMAGE.image_uri
+  IMAGE_URI     = module.docker-build.image_uri
   TASK_CPU      = 256
   TASK_RAM      = 512
   MAIL_TASK_ENV = var.MAIL_API_TASK_ENV
@@ -112,7 +112,7 @@ module "ECS_MAIL_API_SERVICE" {
   FEATURE_NAME          = var.FEATURE_NAME
   SERVICE_NAME          = "${var.ENV}-${var.FEATURE_NAME}-service"
   ECS_CLUSTER_ID        = module.ECS_CLUSTER.cluster_id
-  ECS_CLUSTER_NAME      = module.ECS_CLUSTER.cluster_name
+  ECS_CLUSTER_NAME      = local.cluster_name
   MAIL_TASK_ARN         = module.ECS_MAIL_API_TASK_DEFINITION.task_arn
   DESIRED_COUNT         = 1
   MIN_CAPACITY          = 1
@@ -128,7 +128,7 @@ module "ECS_MAIL_QUEUE_TASK_DEFINITION" {
   source        = "./task_definition/mail_queue"
   TASK_NAME     = lower("${var.ENV}-${var.FEATURE_NAME}_queue")
   TASK_ROLE_ARN = module.ROLE.arn
-  IMAGE_URI     = module.ECS_MAIL_DOCKER_IMAGE.image_uri
+  IMAGE_URI     = module.docker-build.image_uri
   TASK_CPU      = 256
   TASK_RAM      = 512
   MAIL_TASK_ENV = var.MAIL_QUEUE_TASK_ENV
@@ -143,7 +143,7 @@ module "ECS_MAIL_QUEUE_SERVICE" {
   FEATURE_NAME            = var.FEATURE_NAME
   SERVICE_NAME            = "${var.ENV}-${var.FEATURE_NAME}-service"
   ECS_CLUSTER_ID          = module.ECS_CLUSTER.cluster_id
-  ECS_CLUSTER_NAME        = module.ECS_CLUSTER.cluster_name
+  ECS_CLUSTER_NAME        = local.cluster_name
   MAIL_TASK_ARN           = module.ECS_MAIL_QUEUE_TASK_DEFINITION.task_arn
   MAIL_SERVICE_QUEUE_NAME = var.MAIL_SERVICE_QUEUE_NAME
   MESSAGE_PER_TASK        = var.MESSAGE_PER_TASK
@@ -175,5 +175,5 @@ module "ECS_SEARCH_SERVICE" {
 }
 
 output "name" {
-  value = module.ECS_CLUSTER.cluster_name
+  value = local.cluster_name
 }

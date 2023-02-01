@@ -1,8 +1,13 @@
+data "http" "infra" {
+  url = "https://raw.githubusercontent.com/TravelOffice/infrastructure-constant/master/infrastructure.json"
+}
+
 variable "TF_BUCKET" {}
 variable "APPSYNC_RESOLVERS" {}
 variable "ENV" {}
 
 locals {
+  constants                      = jsondecode(data.http.infra.body)
   remote_feature_name = "base_infrastructure"
   env_vars = {
     standard_vars = {
@@ -12,10 +17,10 @@ locals {
       "spring.security.oauth2.resourceserver.jwt.issuer-uri" = "https://cognito-idp.${var.AWS_REGION}.amazonaws.com/${module.REMOTE_STATE.STATE.COMMON_CONFIG.cognito.user_pool.id}"
       MAX_MESSAGE_BRIEF_CONTENT_SIZE                         = "200"
       CORS_ALLOW_ORIGINS                                     = "*"
-      MAIL_GOOGLE_CLIENT_ID                                  = "920440312158-ccqssgdpou4i95qo9o9rh53o9eclm3d5.apps.googleusercontent.com"
-      MAIL_GOOGLE_CLIENT_SECRET                              = "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"
-      MAIL_AZURE_CLIENT_ID                                   = "90f206fd-2461-478b-ae42-74d90f0b992a"
-      MAIL_AZURE_CLIENT_SECRET                               = "Z9C8Q~iJwSlhTRYCZEXFkZ2HJb_mNvVp_3O6oaW6"
+      MAIL_GOOGLE_CLIENT_ID                                  = local.constants["MAIL_GOOGLE_CLIENT_ID"]
+      MAIL_GOOGLE_CLIENT_SECRET                              = local.constants["MAIL_GOOGLE_CLIENT_SECRET"]
+      MAIL_AZURE_CLIENT_ID                                   = local.constants["MAIL_AZURE_CLIENT_ID"]
+      MAIL_AZURE_CLIENT_SECRET                               = local.constants["MAIL_AZURE_CLIENT_SECRET"]
       MAIL_OAUTH2_REDIRECT_ENDPOINT                          = format("%s%s%s", "https://sso.", module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.name, "/mail/callback")
     }
   }
@@ -27,7 +32,7 @@ locals {
   }
 
   MESSAGE_PER_TASK        = 5
-  MEILI_SEARCH_MASTER_KEY = "ec03c020-4a0f-11ed-b878-0242ac120002"
+  MEILI_SEARCH_MASTER_KEY = local.constants["MEILI_SEARCH_MASTER_KEY"]
 }
 
 module "REMOTE_STATE" {
@@ -44,7 +49,7 @@ module "MAIL_LOAD_BALANCER" {
   FEATURE_NAME = var.FEATURE_NAME
   SUBNETS      = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.public_subnets
   VPC_ID       = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
-  DOMAIN_ARN   = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.arn
+  DOMAIN_ARN   = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.api_gateway
   TAGS         = local.tags
 }
 
