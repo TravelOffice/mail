@@ -25,7 +25,6 @@ done
 
 LOG_PATH=/var/log/meilisearch
 VOLUME_PATH=/meilidata
-DATA_PATH=/meilidata/data.ms
 mkdir -p $LOG_PATH
 mkdir -p $VOLUME_PATH
 mount /dev/xvdb $VOLUME_PATH
@@ -33,10 +32,29 @@ if [ $? -ne 0 ]; then
     mkfs.ext4 /dev/xvdb
     mount /dev/xvdb $VOLUME_PATH
 fi
-mkdir -p $DATA_PATH
-# Install Meilisearch
-wget https://github.com/meilisearch/meilisearch/releases/download/v0.29.1/meilisearch.deb
+#Step 1: Install Meilisearch
+wget https://github.com/meilisearch/meilisearch/releases/download/v1.0.0/meilisearch.deb
 dpkg -i meilisearch.deb
+
+#Step 2: Create system user
+useradd -d $VOLUME_PATH/meilisearch -b /bin/false -m -r meilisearch
+
+#Step 3: Create a configuration file
+cat << EOF > /etc/meilisearch.toml
+env = "${env}"
+master_key = "${master_key}"
+db_path = "$${VOLUME_PATH}/meilisearch/data"
+dump_dir = "$${VOLUME_PATH}/meilisearch/dumps"
+snapshot_dir = "$${VOLUME_PATH}/meilisearch/snapshots"
+no_analytics = true
+http_addr = "127.0.0.1:7700"
+log_level = "${log_level}"
+EOF
+mkdir $VOLUME_PATH/meilisearch/data $VOLUME_PATH/meilisearch/dumps$VOLUME_PATH/meilisearch/snapshots
+chown -R meilisearch:meilisearch $VOLUME_PATH/meilisearch
+chmod 750 $VOLUME_PATH/meilisearch
+
+#Step 4: Run Meilisearch as a service
 cat << EOF > /etc/systemd/system/meilisearch.service
 [Unit]
 Description=Meilisearch
@@ -44,23 +62,15 @@ After=systemd-user-sessions.service
 
 [Service]
 Type=simple
-User=root
-ExecStart=/usr/bin/meilisearch
+WorkingDirectory=$${VOLUME_PATH}/meilisearch
+ExecStart=/usr/bin/meilisearch --config-file-path /etc/meilisearch.toml
+User=meilisearch
+Group=meilisearch
 StandardOutput=append:$${LOG_PATH}/access.log
 StandardError=append:$${LOG_PATH}/error.log
 
 [Install]
-WantedBy=default.target
-EOF
-mkdir -p /etc/systemd/system/meilisearch.service.d
-cat << EOF > /etc/systemd/system/meilisearch.service.d/environment.conf
-[Service]
-Environment="MEILI_MASTER_KEY=${master_key}"
-Environment="MEILI_NO_ANALYTICS=true"
-Environment="MEILI_ENV=${env}"
-Environment="MEILI_HTTP_ADDR=127.0.0.1:7700"
-Environment="MEILI_LOG_LEVEL=${log_level}"
-Environment="MEILI_DB_PATH=$${DATA_PATH}"
+WantedBy=multi-user.target
 EOF
 
 # Reload the operating system daemons / services
