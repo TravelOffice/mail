@@ -14,6 +14,8 @@ import com.amazonaws.services.kms.model.NotFoundException
 import com.amazonaws.services.s3.model.*
 import com.amazonaws.services.s3.model.DeleteObjectsRequest.KeyVersion
 import com.google.gson.Gson
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import net.fortuna.ical4j.data.CalendarBuilder
 import net.fortuna.ical4j.data.ParserException
 import net.fortuna.ical4j.model.component.VEvent
@@ -838,18 +840,22 @@ class MailRepository {
      * Throw [Exception] when failed to link email
      */
     fun unlinkEmail(tenant: String, username: String, mailAccount: MailAccount) = try {
-        // Set expiration date for all record belong to mail account, accuracy by hour
-        val expDate = DateUtils.ceiling(DateUtils.addDays(Date(), 7), Calendar.HOUR)
-        logger.info("Updating mail account [${mailAccount.email}] ttl")
-        updateMailAccountTTL(tenant, username, mailAccount, expDate)
-        logger.info("Updated mail account [${mailAccount.email}] ttl successfully")
-        // Move all mail storage to temporary folder that will be expiration after 7 days
-        val mailBucket = secretManagerService.getAWSSecretValue(MAIL_BUCKET)
-        val orgBucket = "$tenant/$username/${mailAccount.email}"
-        val targetBucket = "temporary-delete/${orgBucket}"
-        logger.info("Moving mail storage of mail account [${mailAccount.email}] to temporary delete")
-        s3Provider.moveObjects(mailBucket, orgBucket, targetBucket)
-        logger.info("Moved mail storage of mail account [${mailAccount.email}] to temporary delete successfully")
+        runBlocking {
+            launch {
+                // Set expiration date for all record belong to mail account, accuracy by hour
+                val expDate = DateUtils.ceiling(DateUtils.addDays(Date(), 7), Calendar.HOUR)
+                logger.info("Updating mail account [${mailAccount.email}] ttl")
+                updateMailAccountTTL(tenant, username, mailAccount, expDate)
+                logger.info("Updated mail account [${mailAccount.email}] ttl successfully")
+                // Move all mail storage to temporary folder that will be expiration after 7 days
+                val mailBucket = secretManagerService.getAWSSecretValue(MAIL_BUCKET)
+                val orgBucket = "$tenant/$username/${mailAccount.email}"
+                val targetBucket = "temporary-delete/${orgBucket}"
+                logger.info("Moving mail storage of mail account [${mailAccount.email}] to temporary delete")
+                s3Provider.moveObjects(mailBucket, orgBucket, targetBucket)
+                logger.info("Moved mail storage of mail account [${mailAccount.email}] to temporary delete successfully")
+            }
+        }
         // Remove mail account from database
         dynamoDBMapper.delete(mailAccount)
     } catch (e: Exception) {
