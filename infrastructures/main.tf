@@ -1,5 +1,5 @@
 data "http" "infra" {
-  url = "https://raw.githubusercontent.com/TravelOffice/infrastructure-constant/master/infrastructure.json"
+  url = "https://raw.githubusercontent.com/TravelOffice/infrastructure-constant/master/${var.ENV}-infrastructure.json"
 }
 
 variable "TF_BUCKET" {}
