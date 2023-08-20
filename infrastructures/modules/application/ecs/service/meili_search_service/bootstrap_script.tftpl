@@ -1,0 +1,222 @@
+#!/bin/bash
+MEILISEARCH_VER=1.3.1
+MEILISEARCH_MASTERKEY=${master_key}
+SEARCH_QUEUE=${search_queue}
+REGION=${region}
+
+# Force detach volume before attach
+aws ec2 detach-volume --volume-id ${volume_id} --force
+DATA_STATE="unknown"
+while [ "$${DATA_STATE}" != "" ]; do
+  DATA_STATE=$(aws ec2 describe-volumes --volume-id ${volume_id} --region $${REGION} --query Volumes[].Attachments[].State --output text)
+  echo "Wait for detaching... Current state is [$${DATA_STATE}]"
+  sleep 5
+done
+
+INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+
+aws ec2 attach-volume --volume-id ${volume_id} --device /dev/xvdb --instance-id $${INSTANCE_ID} --region $${REGION}
+DATA_STATE="unknown"
+while [ "$${DATA_STATE}" != "attached" ]; do
+  DATA_STATE=$(aws ec2 describe-volumes --volume-id ${volume_id} --region $${REGION} --query Volumes[].Attachments[].State --output text)
+  echo "Wait for attaching... Current state is [$${DATA_STATE}]"
+  sleep 5
+done
+
+EBS_STANDART_BLOCK_DEVICE=/dev/xvdb
+EBS_NVME_BLOCK_DEVICE=/dev/nvme1n1
+EBS_DEVICE=
+# Check the type of block device
+if [ -e "$${EBS_STANDART_BLOCK_DEVICE}" ]; then
+    echo "$${EBS_STANDART_BLOCK_DEVICE} exists."
+    EBS_DEVICE=$${EBS_STANDART_BLOCK_DEVICE}
+elif [ -e "$${EBS_NVME_BLOCK_DEVICE}" ]; then
+    echo "$${EBS_NVME_BLOCK_DEVICE} exists."
+    EBS_DEVICE=$${EBS_NVME_BLOCK_DEVICE}
+else
+    echo "Neither $${EBS_STANDART_BLOCK_DEVICE} nor $${EBS_NVME_BLOCK_DEVICE} exists. Error, exit bootstrap script"
+    exit 1  # Exit the script with a non-zero status to indicate an error
+fi
+
+LOG_PATH=/var/log/meilisearch
+VOLUME_PATH=/meilidata
+mkdir -p $LOG_PATH
+mkdir -p $VOLUME_PATH
+mount $${EBS_DEVICE} $VOLUME_PATH
+if [ $? -ne 0 ]; then
+    mkfs.ext4 $${EBS_DEVICE}
+    mount $${EBS_DEVICE} $VOLUME_PATH
+fi
+#Step 1: Install Meilisearch
+wget https://github.com/meilisearch/meilisearch/releases/download/v$MEILISEARCH_VER/meilisearch.deb
+dpkg -i meilisearch.deb
+
+#Step 2: Create system user
+useradd -d $VOLUME_PATH/meilisearch -b /bin/false -m -r meilisearch
+
+#Step 3: Create a configuration file
+cat << EOF > /etc/meilisearch.toml
+env = "${env}"
+master_key = "$${MEILISEARCH_MASTERKEY}"
+db_path = "$${VOLUME_PATH}/meilisearch/data"
+dump_dir = "$${VOLUME_PATH}/meilisearch/dumps"
+snapshot_dir = "$${VOLUME_PATH}/meilisearch/snapshots"
+no_analytics = true
+http_addr = "127.0.0.1:7700"
+log_level = "${log_level}"
+EOF
+mkdir $VOLUME_PATH/meilisearch/data $VOLUME_PATH/meilisearch/dumps$VOLUME_PATH/meilisearch/snapshots
+chown -R meilisearch:meilisearch $VOLUME_PATH/meilisearch
+chmod 750 $VOLUME_PATH/meilisearch
+
+#Step 4: Run Meilisearch as a service
+cat << EOF > /etc/systemd/system/meilisearch.service
+[Unit]
+Description=Meilisearch
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+WorkingDirectory=$${VOLUME_PATH}/meilisearch
+ExecStart=/usr/bin/meilisearch --config-file-path /etc/meilisearch.toml
+User=meilisearch
+Group=meilisearch
+StandardOutput=append:$${LOG_PATH}/access.log
+StandardError=append:$${LOG_PATH}/error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload the operating system daemons / services
+systemctl daemon-reload
+
+# Set the service meilisearch
+systemctl enable meilisearch
+
+# Start the meilisearch service
+systemctl start meilisearch
+
+# Verify that the service is actually running
+systemctl status meilisearch --no-pager -l
+
+# Install Nginx on Debian
+apt-get install nginx -y
+
+# Delete the default configuration file for Nginx
+rm -f /etc/nginx/sites-enabled/default
+
+# Add your configuration file specifying the Reverse Proxy settings
+cat << EOF > /etc/nginx/conf.d/uploadsize.conf
+client_max_body_size 20M;
+proxy_request_buffering off;
+EOF
+cat << EOF > /etc/nginx/sites-enabled/meilisearch
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    location / {
+        proxy_pass  http://127.0.0.1:7700;
+    }
+    location /mail/search {
+        proxy_pass  http://127.0.0.1/;
+    }
+}
+EOF
+
+# Reload the operating system daemons / services
+systemctl daemon-reload
+
+# Enable and start Nginx service
+systemctl enable nginx
+systemctl restart nginx
+
+# Install cloudwatch log agent
+wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/amazon-cloudwatch-agent.deb
+dpkg -i /tmp/amazon-cloudwatch-agent.deb
+
+cat << EOF > /opt/aws/amazon-cloudwatch-agent/bin/config.json
+{
+  "agent": {
+    "metrics_collection_interval": 10,
+    "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+              "file_path": "$${LOG_PATH}/access.log",
+              "log_group_name":  "${log_group}",
+              "log_stream_name": "{ip_address}_{instance_id}",
+              "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
+              "timezone": "Local"
+          },
+          {
+            "file_path": "$${LOG_PATH}/error.log",
+            "log_group_name":  "${log_group}",
+            "log_stream_name": "{ip_address}_{instance_id}",
+            "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
+            "timezone": "Local"
+        }
+        ]
+      }
+    }
+  }
+}
+EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
+
+
+# Install needed python library
+cat << EOF > /requirements.txt
+${python_lib_requirements}
+EOF
+pip install -r /requirements.txt
+
+# Setup script to delete expired data
+cat << EOF > /delete_expired_data.py
+${delete_expired_data_script}
+EOF
+
+systemctl enable cron
+(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/bin/python3 /delete_expired_data.py >> $${LOG_PATH}/access.log") | crontab -
+systemctl restart cron
+
+# Setup script to poll sqs and process message
+cat << EOF > /process_search_queue.py
+${process_search_query_script}
+EOF
+
+#Step 6: Run Meilisearch Queue as a service
+cat << EOF > /etc/systemd/system/meili_search_queue.service
+[Unit]
+Description=MeilisearchQueue
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /process_search_queue.py
+User=meilisearch
+Group=meilisearch
+StandardOutput=append:$${LOG_PATH}/access.log
+StandardError=append:$${LOG_PATH}/error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload the operating system daemons / services
+systemctl daemon-reload
+
+# Set the service meili_search_queue
+systemctl enable meili_search_queue
+
+# Start the meili_search_queue service
+systemctl start meili_search_queue
+
+# Verify that the service is actually running
+systemctl status meili_search_queue --no-pager -l

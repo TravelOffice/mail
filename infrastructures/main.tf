@@ -7,7 +7,7 @@ variable "APPSYNC_RESOLVERS" {}
 variable "ENV" {}
 
 locals {
-  constants                      = jsondecode(data.http.infra.body)
+  constants           = jsondecode(data.http.infra.response_body)
   remote_feature_name = "base_infrastructure"
   env_vars = {
     standard_vars = {
@@ -22,6 +22,7 @@ locals {
       MAIL_AZURE_CLIENT_ID                                   = local.constants["MAIL_AZURE_CLIENT_ID"]
       MAIL_AZURE_CLIENT_SECRET                               = local.constants["MAIL_AZURE_CLIENT_SECRET"]
       MAIL_OAUTH2_REDIRECT_ENDPOINT                          = format("%s%s%s", "https://sso.", module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.name, "/mail/callback")
+      MAIL_SEARCH_QUEUE_URL                                  = module.MAIL_QUEUE.search_queue_url
     }
   }
 
@@ -44,13 +45,11 @@ module "REMOTE_STATE" {
 }
 
 module "MAIL_LOAD_BALANCER" {
-  source       = "../../modules/application/alb"
-  ENV          = var.ENV
-  FEATURE_NAME = var.FEATURE_NAME
-  SUBNETS      = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.public_subnets
-  VPC_ID       = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
-  DOMAIN_ARN   = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.api_gateway
-  TAGS         = local.tags
+  source     = "../../modules/application/alb"
+  VPC_ID     = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
+  LB_ARN     = module.REMOTE_STATE.STATE.MARKETING.search.lb_arn
+  DOMAIN_ARN = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.api_gateway
+  TAGS       = local.tags
 }
 
 module "ECS" {
@@ -61,7 +60,8 @@ module "ECS" {
     "EcsTaskStandardRole",
     "DynamoTableReadWrite",
     "SQSLambdaTriggerRole",
-    "SecretManagerRead"
+    "SecretManagerRead",
+    "SQSSendMessage"
   ]
   AWS_POLICIES = [
     "service-role/AmazonECSTaskExecutionRolePolicy"
@@ -75,7 +75,7 @@ module "ECS" {
   MAIL_QUEUE_TASK_ENV = merge(
     local.env_vars.standard_vars,
     {
-      MAIL_SERVICE_QUEUE_NAME            = module.MAIL_QUEUE.mail_queue_url
+      MAIL_SERVICE_QUEUE_URL            = module.MAIL_QUEUE.mail_queue_url
       MAIL_MAX_MESSAGE_PER_SERVICE_TASK  = tostring(local.MESSAGE_PER_TASK)
       "spring.profiles.active"           = "mail_queue"
       "spring.main.web-application-type" = "none"
@@ -88,21 +88,12 @@ module "ECS" {
   VPC_ID                   = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
   MAIL_TARGET_GROUP_ARN    = module.MAIL_LOAD_BALANCER.mail_lb_target_group_arn
   SEARCH_TARGET_GROUP_ARN  = module.MAIL_LOAD_BALANCER.search_lb_target_group_arn
-  MAIL_SERVICE_QUEUE_NAME  = module.MAIL_QUEUE.mail_queue_name
+  MAIL_SERVICE_QUEUE_URL  = module.MAIL_QUEUE.mail_queue_name
   MESSAGE_PER_TASK         = local.MESSAGE_PER_TASK
   MEILI_SEARCH_MASTER_KEY  = local.MEILI_SEARCH_MASTER_KEY
-  MEILI_SEARCH_DATA_VOLUME = module.REMOTE_STATE.STATE.MARKETING.search.volume_id
-}
-
-resource "aws_route53_record" "mail_domain" {
-  zone_id = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.id
-  name    = lower("${var.ENV}-${var.FEATURE_NAME}")
-  type    = "A"
-  alias {
-    name                   = module.MAIL_LOAD_BALANCER.mail_lb_dns
-    zone_id                = module.MAIL_LOAD_BALANCER.mail_lb_zone_id
-    evaluate_target_health = true
-  }
+  SEARCH_MESSAGE_QUEUE_URL = module.MAIL_QUEUE.search_queue_url
+  SEARCH_MESSAGE_QUEUE_ARN = module.MAIL_QUEUE.search_queue_arn
+  SCRIPT_BUCKET            = module.REMOTE_STATE.STATE.MARKETING.s3.script_bucket
 }
 
 module "MAIL_QUEUE" {
@@ -128,6 +119,5 @@ module "APPSYNC_CONFIGURATION" {
 module "SECRET_MANAGER" {
   source                   = "../../modules/application/secret"
   SECRET_MANAGER_ID        = module.REMOTE_STATE.STATE.MARKETING.backend.secret_manager.id
-  SEARCH_ENGINE_ENDPOINT   = "${aws_route53_record.mail_domain.fqdn}/search"
   SEARCH_ENGINE_MASTER_KEY = local.MEILI_SEARCH_MASTER_KEY
 }

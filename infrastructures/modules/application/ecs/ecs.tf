@@ -15,10 +15,12 @@ variable "SEARCH_TARGET_GROUP_ARN" {}
 variable "PUBLIC_SUBNETS" {}
 variable "PRIVATE_SUBNETS" {}
 variable "VPC_ID" {}
-variable "MAIL_SERVICE_QUEUE_NAME" {}
+variable "MAIL_SERVICE_QUEUE_URL" {}
 variable "MESSAGE_PER_TASK" {}
 variable "MEILI_SEARCH_MASTER_KEY" {}
-variable "MEILI_SEARCH_DATA_VOLUME" {}
+variable "SEARCH_MESSAGE_QUEUE_URL" {}
+variable "SEARCH_MESSAGE_QUEUE_ARN" {}
+variable "SCRIPT_BUCKET" {}
 
 locals {
   cluster_name = "${upper("${var.ENV}-${var.FEATURE_NAME}")}-CLUSTER"
@@ -145,10 +147,10 @@ module "ECS_MAIL_QUEUE_SERVICE" {
   ECS_CLUSTER_ID          = module.ECS_CLUSTER.cluster_id
   ECS_CLUSTER_NAME        = local.cluster_name
   MAIL_TASK_ARN           = module.ECS_MAIL_QUEUE_TASK_DEFINITION.task_arn
-  MAIL_SERVICE_QUEUE_NAME = var.MAIL_SERVICE_QUEUE_NAME
+  MAIL_SERVICE_QUEUE_URL = var.MAIL_SERVICE_QUEUE_URL
   MESSAGE_PER_TASK        = var.MESSAGE_PER_TASK
-  DESIRED_COUNT           = 0
-  MIN_CAPACITY            = 0
+  DESIRED_COUNT           = 1
+  MIN_CAPACITY            = 1
   MAX_CAPACITY            = 5
   CONTAINER_NAME          = lower("${var.ENV}-${var.FEATURE_NAME}")
   SUBNETS                 = var.PRIVATE_SUBNETS
@@ -158,20 +160,22 @@ module "ECS_MAIL_QUEUE_SERVICE" {
 
 
 module "ECS_SEARCH_SERVICE" {
-  source                  = "./service/meili_search_service"
-  ENV                     = var.ENV
-  FEATURE_NAME            = var.FEATURE_NAME
-  SERVICE_NAME            = "${var.ENV}-${var.FEATURE_NAME}-service"
-  DESIRED_COUNT           = 1
-  MIN_CAPACITY            = 1
-  MAX_CAPACITY            = 1
-  SEARCH_TARGET_GROUP_ARN = var.SEARCH_TARGET_GROUP_ARN
-  SUBNETS                 = var.PRIVATE_SUBNETS
-  VPC_ID                  = var.VPC_ID
-  AWS_REGION              = var.AWS_REGION
-  MEILI_SEARCH_MASTER_KEY = var.MEILI_SEARCH_MASTER_KEY
-  SEARCH_DATA_VOLUME      = var.MEILI_SEARCH_DATA_VOLUME
-  TAGS                    = var.TAGS
+  source                   = "./service/meili_search_service"
+  ENV                      = var.ENV
+  FEATURE_NAME             = var.FEATURE_NAME
+  SERVICE_NAME             = "${var.ENV}-${var.FEATURE_NAME}-service"
+  DESIRED_COUNT            = 1
+  MIN_CAPACITY             = 1
+  MAX_CAPACITY             = 1
+  SEARCH_TARGET_GROUP_ARN  = var.SEARCH_TARGET_GROUP_ARN
+  SUBNETS                  = var.PRIVATE_SUBNETS
+  VPC_ID                   = var.VPC_ID
+  AWS_REGION               = var.AWS_REGION
+  MEILI_SEARCH_MASTER_KEY  = var.MEILI_SEARCH_MASTER_KEY
+  SEARCH_MESSAGE_QUEUE_URL = var.SEARCH_MESSAGE_QUEUE_URL
+  SEARCH_MESSAGE_QUEUE_ARN = var.SEARCH_MESSAGE_QUEUE_ARN
+  SCRIPT_BUCKET            = var.SCRIPT_BUCKET
+  TAGS                     = var.TAGS
 }
 
 output "name" {

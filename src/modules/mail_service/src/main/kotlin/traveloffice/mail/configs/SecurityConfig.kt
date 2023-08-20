@@ -19,7 +19,7 @@ class SecurityConfig {
     fun filterChain(http: HttpSecurity): SecurityFilterChain {
         // We have made each endpoint accessible by Oath 2.0 authenticated requests
         http.cors().and().csrf().disable().authorizeRequests {
-            it.antMatchers("/healthcheck").permitAll().anyRequest().authenticated()
+            it.antMatchers("/mail/healthcheck").permitAll().anyRequest().authenticated()
         }.oauth2ResourceServer().jwt()
         return http.build()
     }

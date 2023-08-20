@@ -1,237 +1,25 @@
 #!/bin/bash
+
+# Function to fetch the bootstrap script from S3 with retries
+fetch_bootstrap_script() {
+    while :; do
+        aws s3 cp s3://${bootstrap_script} bootstrap_script.sh && return 0
+        echo "Failed to fetch bootstrap script. Retrying in 10 seconds..."
+        sleep 10
+    done
+}
+
+# Update and install necessary packages
 apt update -y
-apt install unzip curl wget cron -y
+apt install unzip curl wget cron python3-pip -y
+
+# Install AWS CLI v2
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip -o awscliv2.zip
 ./aws/install
 
-# Force detach volume before attach
-aws ec2 detach-volume --volume-id ${volume_id} --force
-DATA_STATE="unknown"
-while [ "$${DATA_STATE}" != "" ]; do
-  DATA_STATE=$(aws ec2 describe-volumes --volume-id ${volume_id} --region ${region} --query Volumes[].Attachments[].State --output text)
-  echo "Wait for detaching... Current state is [$${DATA_STATE}]"
-  sleep 5
-done
+# Fetch bootstrap script from S3 with retries
+fetch_bootstrap_script
 
-OUTPUT=$(curl http://169.254.169.254/latest/meta-data/instance-id)
-aws ec2 attach-volume --volume-id ${volume_id} --device /dev/xvdb --instance-id $OUTPUT --region ${region}
-DATA_STATE="unknown"
-while [ "$${DATA_STATE}" != "attached" ]; do
-  DATA_STATE=$(aws ec2 describe-volumes --volume-id ${volume_id} --region ${region} --query Volumes[].Attachments[].State --output text)
-  echo "Wait for attaching... Current state is [$${DATA_STATE}]"
-  sleep 5
-done
-
-LOG_PATH=/var/log/meilisearch
-VOLUME_PATH=/meilidata
-mkdir -p $LOG_PATH
-mkdir -p $VOLUME_PATH
-mount /dev/xvdb $VOLUME_PATH
-if [ $? -ne 0 ]; then
-    mkfs.ext4 /dev/xvdb
-    mount /dev/xvdb $VOLUME_PATH
-fi
-#Step 1: Install Meilisearch
-wget https://github.com/meilisearch/meilisearch/releases/download/v1.0.0/meilisearch.deb
-dpkg -i meilisearch.deb
-
-#Step 2: Create system user
-useradd -d $VOLUME_PATH/meilisearch -b /bin/false -m -r meilisearch
-
-#Step 3: Create a configuration file
-cat << EOF > /etc/meilisearch.toml
-env = "${env}"
-master_key = "${master_key}"
-db_path = "$${VOLUME_PATH}/meilisearch/data"
-dump_dir = "$${VOLUME_PATH}/meilisearch/dumps"
-snapshot_dir = "$${VOLUME_PATH}/meilisearch/snapshots"
-no_analytics = true
-http_addr = "127.0.0.1:7700"
-log_level = "${log_level}"
-EOF
-mkdir $VOLUME_PATH/meilisearch/data $VOLUME_PATH/meilisearch/dumps$VOLUME_PATH/meilisearch/snapshots
-chown -R meilisearch:meilisearch $VOLUME_PATH/meilisearch
-chmod 750 $VOLUME_PATH/meilisearch
-
-#Step 4: Run Meilisearch as a service
-cat << EOF > /etc/systemd/system/meilisearch.service
-[Unit]
-Description=Meilisearch
-After=systemd-user-sessions.service
-
-[Service]
-Type=simple
-WorkingDirectory=$${VOLUME_PATH}/meilisearch
-ExecStart=/usr/bin/meilisearch --config-file-path /etc/meilisearch.toml
-User=meilisearch
-Group=meilisearch
-StandardOutput=append:$${LOG_PATH}/access.log
-StandardError=append:$${LOG_PATH}/error.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Reload the operating system daemons / services
-systemctl daemon-reload
-
-# Set the service meilisearch
-systemctl enable meilisearch
-
-# Start the meilisearch service
-systemctl start meilisearch
-
-# Verify that the service is actually running
-systemctl status meilisearch --no-pager -l
-
-# Install Nginx on Debian
-apt-get install nginx -y
-
-# Delete the default configuration file for Nginx
-rm -f /etc/nginx/sites-enabled/default
-
-# Add your configuration file specifying the Reverse Proxy settings
-cat << EOF > /etc/nginx/conf.d/uploadsize.conf
-client_max_body_size 20M;
-proxy_request_buffering off;
-EOF
-cat << EOF > /etc/nginx/sites-enabled/meilisearch
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-    location / {
-        proxy_pass  http://127.0.0.1:7700;
-    }
-    location /search {
-        proxy_pass  http://127.0.0.1/;
-    }
-}
-EOF
-
-# Reload the operating system daemons / services
-systemctl daemon-reload
-
-# Enable and start Nginx service
-systemctl enable nginx
-systemctl restart nginx
-
-# Install cloudwatch log agent
-wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -O /tmp/amazon-cloudwatch-agent.deb
-dpkg -i /tmp/amazon-cloudwatch-agent.deb
-
-cat << EOF > /opt/aws/amazon-cloudwatch-agent/bin/config.json
-{
-  "agent": {
-    "metrics_collection_interval": 10,
-    "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
-    "run_as_user": "root"
-  },
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {
-              "file_path": "$${LOG_PATH}/access.log",
-              "log_group_name":  "${log_group}",
-              "log_stream_name": "{ip_address}_{instance_id}",
-              "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
-              "timezone": "Local"
-          },
-          {
-            "file_path": "$${LOG_PATH}/error.log",
-            "log_group_name":  "${log_group}",
-            "log_stream_name": "{ip_address}_{instance_id}",
-            "timestamp_format": "%d/%b/%Y:%H:%M:%S %z",
-            "timezone": "Local"
-        }
-        ]
-      }
-    }
-  }
-}
-EOF
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
-
-
-# Setup script to delete expired data
-cat << EOF > /delete_expired_data.py
-# importing the requests library
-from urllib import response
-import requests
-import time
-import json
-
-# api-endpoint
-URL = "http://localhost"
-MASTER_KEY = "${master_key}"
-HEADERS = {'Content-type': 'application/json', 'Authorization': "Bearer " + MASTER_KEY}
-LIMIT = 10
-
-def getIndexes():
-  indexes = []
-  count = 0
-
-  while True:
-    getIndexParams = {'offset': count, "limit": LIMIT}
-    response = requests.get(url=URL + "/indexes", params=getIndexParams, headers=HEADERS)
-    data = response.json()
-    results = data["results"]
-    count += len(results)
-    total = int(data["total"])
-    for result in results:
-      indexes.append(result["uid"])
-    if count >= total:
-      break
-
-  print("Found total " + str(count) + " indexes: ", indexes)
-  return indexes
-
-def getExpItems(index, expTime):
-  uids = []
-  count = 0
-
-  while True:
-    search_data = {
-      "q": "",
-      "attributesToRetrieve": ["id"],
-      "filter": [
-        "ttl <= " + str(expTime),
-        "ttl != 0"
-      ],
-      "offset": count,
-      "limit": LIMIT
-    }
-    response = requests.post(url=URL + "/indexes/" + index + "/search", headers=HEADERS, data=json.dumps(search_data))
-    data = response.json()
-    total = int(data["estimatedTotalHits"])
-    results = data["hits"]
-    for result in results:
-      uids.append(result["id"])
-    count += len(results)
-    if count >= total:
-      break
-
-  print("Index: ", index, " found total " + str(count) + " items")
-  return uids
-
-def batchDeleteExpItems(index, items):
-  print("Going to delete all exp items: ", items)
-  response = requests.post(url=URL + "/indexes/" + index + "/documents/delete-batch", headers=HEADERS, data=json.dumps(items))
-  return response.json()
-
-# Get all exp items and delete them
-current_time = int(time.time())
-print(current_time)
-indexes = getIndexes()
-for index in indexes:
-  expItems = getExpItems(index, current_time)
-  if len(expItems) > 0:
-    batchDeleteExpItems(index, expItems)
-EOF
-
-systemctl enable cron
-(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/bin/python3 /delete_expired_data.py >> $${LOG_PATH}/access.log") | crontab -
-systemctl restart cron
+chmod +x bootstrap_script.sh
+./bootstrap_script.sh

@@ -7,6 +7,7 @@ import software.amazon.awssdk.services.sqs.model.DeleteMessageResponse
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse
 
+
 class SQSProvider(region: String) {
     private var sqsClient: SqsClient
 

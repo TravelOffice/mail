@@ -29,7 +29,7 @@ dependencies {
 	implementation("com.amazonaws:aws-java-sdk-dynamodb:1.12.307")
 	implementation("software.amazon.awssdk:regions:2.17.276")
 	implementation("software.amazon.awssdk:secretsmanager:2.17.276")
-	implementation("software.amazon.awssdk:sqs:2.17.276")
+	implementation("software.amazon.awssdk:sqs:2.17.290")
 	implementation("com.google.code.gson:gson:2.9.1")
 	implementation("org.jsoup:jsoup:1.15.3")
 	implementation("com.github.TravelOffice:email_mime_parser:v1.0.6")

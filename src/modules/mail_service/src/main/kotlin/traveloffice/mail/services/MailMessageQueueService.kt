@@ -33,7 +33,7 @@ class MailMessageQueueService {
         waitTimeSeconds: Int? = DEFAULT_WAIT_TIME_SECOND,
         maxNumberOfMessages: Int? = DEFAULT_MAX_NUMBER_MESSAGE
     ): List<MailMessageQueueEvent>? {
-        val queueUrl = this.secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME")
+        val queueUrl = this.secretManagerService.getEnv("MAIL_SERVICE_QUEUE_URL")
         val messagesData = this.messageQueueRepository.receiveMessage(queueUrl, waitTimeSeconds, maxNumberOfMessages)
         return messagesData?.messages()?.map {
             var data: MailMessageQueueData? = null
@@ -58,7 +58,7 @@ class MailMessageQueueService {
      * @exception
      */
     fun deleteMessage(receiptHandle: String) {
-        val queueUrl = this.secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME")
+        val queueUrl = this.secretManagerService.getEnv("MAIL_SERVICE_QUEUE_URL")
         return this.messageQueueRepository.deleteMessage(queueUrl, receiptHandle)
     }
 }
