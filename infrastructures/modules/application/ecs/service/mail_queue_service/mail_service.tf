@@ -5,7 +5,7 @@ variable "ECS_CLUSTER_NAME" {}
 variable "ECS_CLUSTER_ID" {}
 variable "MAIL_TASK_ARN" {}
 variable "DESIRED_COUNT" {}
-variable "MAIL_SERVICE_QUEUE_NAME" {}
+variable "MAIL_SERVICE_QUEUE_URL" {}
 variable "MESSAGE_PER_TASK" {}
 variable "CONTAINER_NAME" {}
 variable "SUBNETS" {}
@@ -54,7 +54,7 @@ module "MAIL_SQS_AUTO_SCALE" {
   ECS_CLUSTER_NAME        = var.ECS_CLUSTER_NAME
   MIN_CAPACITY            = var.MIN_CAPACITY
   MAX_CAPACITY            = var.MAX_CAPACITY
-  MAIL_SERVICE_QUEUE_NAME = var.MAIL_SERVICE_QUEUE_NAME
+  MAIL_SERVICE_QUEUE_URL = var.MAIL_SERVICE_QUEUE_URL
   MESSAGE_PER_TASK        = var.MESSAGE_PER_TASK
   TAGS                    = var.TAGS
 }

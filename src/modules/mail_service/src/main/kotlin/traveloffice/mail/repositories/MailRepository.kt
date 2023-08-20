@@ -102,7 +102,7 @@ class MailRepository {
     lateinit var smtpProvider: SMTPProvider
 
     @Autowired
-    lateinit var meiliSearchProvider: MeiliSearchProvider
+    lateinit var searchProvider: SearchProvider
 
     @Autowired
     lateinit var oAuth2ProviderFactory: OAuth2ProviderFactory
@@ -338,6 +338,7 @@ class MailRepository {
                 //Refactor the exp time of oauth token, convert to epoch time
                 val expTimeInSecond = newToken!!.expires_in
                 newToken.expires_in = DateUtils.addSeconds(Date(), expTimeInSecond.toInt()).time.div(1000L)
+                newToken.refresh_token = oauth2Token.refresh_token
                 mailAccount.oauth2Token = newToken
                 dynamoDBMapper.save(mailAccount)
             }
@@ -560,7 +561,7 @@ class MailRepository {
 
         // Start save to search database
         val mailMessageSearch = mailMessage.toSearchEntity()
-        meiliSearchProvider.addDocuments(mailAccount.searchIndex, mailMessageSearch.toJsonString())
+        searchProvider.addDocument(mailAccount.searchIndex, mailMessageSearch)
     }
 
     /**
@@ -801,7 +802,7 @@ class MailRepository {
         // Save mail account information to dynamodb
         this.dynamoDBMapper.save(mailAccount)
         // Create the search engine index
-        this.meiliSearchProvider.createOrUpdateIndex(messageIndex, MailMessageSearch.IndexConfig().defaultSetting())
+        this.searchProvider.createIndex(messageIndex, MailMessageSearch.IndexConfig().defaultSetting(), "id")
 
         val mailboxes = getMailBoxes(tenant, username, mailAccount.email)
         if (mailboxes.isNotEmpty() && mailboxes.first().ttl != null) {
@@ -885,13 +886,13 @@ class MailRepository {
                     message.ttl = dynamoDBTTL
                     return@map message
                 }
-                val searchUpdateMessage = messages.map { message ->
+                val searchUpdateMessages = messages.map { message ->
                     mapOf(
                         "id" to message.messageId.toSearchIndex(),
                         "ttl" to searchTTL
                     )
                 }
-                meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
+                searchProvider.updateDocuments(mailAccount.searchIndex, searchUpdateMessages)
                 dynamoDBMapper.batchSave(mailMessagesTTL)
             } while (lastEvaluatedKey != null)
         }
@@ -1073,13 +1074,13 @@ class MailRepository {
 
         // Update search engine items
         val mailAccount = this.getMailAccount(tenant, username, mail)
-        val searchUpdateMessage = listOf(
+        val searchUpdateMessages = listOf(
             mapOf(
                 "id" to newMailMessage.messageId.toSearchIndex(),
                 "box" to to
             )
         )
-        this.meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
+        this.searchProvider.updateDocuments(mailAccount.searchIndex, searchUpdateMessages)
     }
 
     /**
@@ -1133,13 +1134,13 @@ class MailRepository {
         this.dynamoDBMapper.batchSave(newMailMessages)
 
         // Batch update search engine items
-        val searchUpdateMessage = messagesToUpdate.map {
+        val searchUpdateMessages = messagesToUpdate.map {
             return@map mapOf(
                 "id" to (it as MailMessage).messageId.toSearchIndex(),
                 "box" to to
             )
         }
-        this.meiliSearchProvider.updateDocuments(mailAccount.searchIndex, Gson().toJson(searchUpdateMessage))
+        this.searchProvider.updateDocuments(mailAccount.searchIndex, searchUpdateMessages)
     }
 
     /**
@@ -1167,7 +1168,7 @@ class MailRepository {
                 return@forEach
             // Get the last sync item from search engine
             val searchResult =
-                this.meiliSearchProvider.search(
+                this.searchProvider.search(
                     mailAccount.searchIndex,
                     MailMessageSearchRequest("", 0, 1, listOf("date"), listOf("date:desc"), listOf("box = ${it.name}"))
                 )
@@ -1196,7 +1197,7 @@ class MailRepository {
                     message.mailbox = it.name
                     return@map toMailMessageSearch(message).toJsonString()
                 }
-                this.meiliSearchProvider.addDocuments(mailAccount.searchIndex, mailMessagesSearch.toString())
+                this.searchProvider.addDocuments(mailAccount.searchIndex, mailMessagesSearch)
                 logger.info(
                     "Mailbox [${it.name}] Replicated ${mailMessagesSearch.size} email from database to search engine " +
                             "from Tenant [$tenant] User [$username] " +
@@ -1256,7 +1257,7 @@ class MailRepository {
 
         // Delete message from search engine
         val searchMessagesIdToDelete = messagesToDelete.map { (it as MailMessage).messageId.toSearchIndex() }
-        this.meiliSearchProvider.deleteDocuments(mailAccount.searchIndex, Gson().toJson(searchMessagesIdToDelete))
+        this.searchProvider.deleteDocuments(mailAccount.searchIndex, searchMessagesIdToDelete)
 
         // Batch delete list of messages
         this.dynamoDBMapper.batchDelete(messagesToDelete)

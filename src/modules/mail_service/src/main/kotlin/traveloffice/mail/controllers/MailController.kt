@@ -29,6 +29,7 @@ import javax.validation.constraints.NotEmpty
 
 
 @RestController
+@RequestMapping("/mail")
 @Validated
 class MailController {
     @Autowired

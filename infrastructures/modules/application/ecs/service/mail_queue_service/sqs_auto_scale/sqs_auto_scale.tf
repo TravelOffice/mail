@@ -2,7 +2,7 @@ variable "MIN_CAPACITY" {}
 variable "MAX_CAPACITY" {}
 variable "SERVICE_NAME" {}
 variable "ECS_CLUSTER_NAME" {}
-variable "MAIL_SERVICE_QUEUE_NAME" {}
+variable "MAIL_SERVICE_QUEUE_URL" {}
 variable "MESSAGE_PER_TASK" {}
 variable "TAGS" {}
 
@@ -111,7 +111,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_low" {
       stat        = "Maximum"
 
       dimensions = {
-        QueueName = var.MAIL_SERVICE_QUEUE_NAME
+        QueueName = var.MAIL_SERVICE_QUEUE_URL
       }
     }
   }
@@ -126,7 +126,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_low" {
       stat        = "Maximum"
 
       dimensions = {
-        QueueName = var.MAIL_SERVICE_QUEUE_NAME
+        QueueName = var.MAIL_SERVICE_QUEUE_URL
       }
     }
   }
@@ -161,7 +161,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_pending_message" {
       stat        = "Maximum"
 
       dimensions = {
-        QueueName = var.MAIL_SERVICE_QUEUE_NAME
+        QueueName = var.MAIL_SERVICE_QUEUE_URL
       }
     }
   }
@@ -176,7 +176,7 @@ resource "aws_cloudwatch_metric_alarm" "service_queue_pending_message" {
       stat        = "Maximum"
 
       dimensions = {
-        QueueName = var.MAIL_SERVICE_QUEUE_NAME
+        QueueName = var.MAIL_SERVICE_QUEUE_URL
       }
     }
   }

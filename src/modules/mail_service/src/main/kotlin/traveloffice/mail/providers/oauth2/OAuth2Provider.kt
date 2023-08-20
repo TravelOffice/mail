@@ -130,6 +130,7 @@ abstract class OAuth2Provider(
         val requestTokenBody: RequestBody = FormBody.Builder()
             .addEncoded("grant_type", "refresh_token")
             .addEncoded("client_id", clientId)
+            .addEncoded("client_secret", clientSecret)
             .addEncoded("refresh_token", refreshToken)
             .build()
         val httpClient = HttpRequest.Builder().build()

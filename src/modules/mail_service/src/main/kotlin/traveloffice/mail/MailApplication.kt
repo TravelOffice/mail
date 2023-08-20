@@ -53,7 +53,7 @@ class MailApplication : ApplicationRunner {
     }
 
     override fun run(arg0: ApplicationArguments?) {
-        isMailQueueTask = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_NAME").isNotEmpty()
+        isMailQueueTask = secretManagerService.getEnv("MAIL_SERVICE_QUEUE_URL").isNotEmpty()
         if (isMailQueueTask) {
             val maxMessagePerTask = secretManagerService.getEnv("MAIL_MAX_MESSAGE_PER_SERVICE_TASK").toInt()
             runBlocking {

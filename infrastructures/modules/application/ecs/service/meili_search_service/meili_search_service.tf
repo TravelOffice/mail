@@ -9,28 +9,57 @@ variable "VPC_ID" {}
 variable "ENV" {}
 variable "FEATURE_NAME" {}
 variable "TAGS" {}
-variable "SEARCH_DATA_VOLUME" {}
 variable "INSTANCE_ID" {
   default = "ami-07651f0c4c315a529"
 }
 variable "MEILI_SEARCH_MASTER_KEY" {}
+variable "SEARCH_MESSAGE_QUEUE_URL" {}
+variable "SEARCH_MESSAGE_QUEUE_ARN" {}
+variable "SCRIPT_BUCKET" {}
 
+// Create melisearch volume
+module "SEARCH_INSTANCE_VOLUME" {
+  source     = "./volume"
+  AWS_REGION = var.AWS_REGION
+  ENV        = var.ENV
+  TAGS       = var.TAGS
+}
 
 // Create the meli search service
 locals {
-  volume_id = var.SEARCH_DATA_VOLUME
+  volume_id = module.SEARCH_INSTANCE_VOLUME.volume_id
+  bootstrap_script = templatefile(
+    format("%s/%s", path.module, "bootstrap_script.tftpl"),
+    {
+      volume_id    = local.volume_id,
+      region       = var.AWS_REGION,
+      master_key   = var.MEILI_SEARCH_MASTER_KEY,
+      search_queue = var.SEARCH_MESSAGE_QUEUE_URL,
+      env          = var.ENV == "dev" ? "development" : "production",
+      log_level    = var.ENV == "dev" ? "INFO" : "WARN",
+      log_group    = substr(data.aws_arn.task_log.resource, length("log-group:"), -1),
+
+      // Script
+      python_lib_requirements     = file(format("%s/%s", path.module, "python_lib_requirements.txt")),
+      delete_expired_data_script  = file(format("%s/%s", path.module, "delete_expired_data.py")),
+      process_search_query_script = file(format("%s/%s", path.module, "process_search_queue.py")),
+    }
+  )
+  instance_type = var.ENV == "dev" ? "t3.medium" : "t3.medium"
   user_data = templatefile(
     format("%s/%s", path.module, "user_data.tftpl"),
     {
-      volume_id  = local.volume_id,
-      region     = var.AWS_REGION,
-      master_key = var.MEILI_SEARCH_MASTER_KEY,
-      env        = var.ENV == "dev" ? "development" : "production",
-      log_level  = var.ENV == "dev" ? "INFO" : "WARN",
-      log_group  = substr(data.aws_arn.task_log.resource, length("log-group:"), -1)
+      // Script
+      bootstrap_script  = "${var.SCRIPT_BUCKET}/mail/search/bootstrap_script",
     }
   )
-  instance_type = var.ENV == "dev" ? "t2.micro" : "t3.medium"
+}
+
+resource "aws_s3_object" "bootstrap_script" {
+  bucket = var.SCRIPT_BUCKET
+  key    = "mail/search/bootstrap_script"
+  content = local.bootstrap_script
+  # etag   = filemd5(local.user_data)
 }
 
 resource "aws_iam_instance_profile" "profile" {
@@ -59,7 +88,7 @@ resource "aws_iam_policy" "policy" {
         "Effect" : "Allow",
         "Action" : [
           "ec2:AttachVolume",
-          "ec2:DetachVolume"
+          "ec2:DetachVolume",
         ],
         "Resource" : [
           "arn:aws:ec2:*:*:instance/*",
@@ -69,10 +98,27 @@ resource "aws_iam_policy" "policy" {
       {
         "Effect" : "Allow",
         "Action" : [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+        ],
+        "Resource" : [
+          "${var.SEARCH_MESSAGE_QUEUE_ARN}"
+        ]
+      },
+      {
+        "Effect" : "Allow",
+        "Action" : [
           "ec2:DescribeVolumes",
           "ec2:DescribeTags"
         ],
         "Resource" : "*"
+      },
+      {
+        "Effect" : "Allow",
+        "Action" : [
+          "s3:GetObject"
+        ],
+        "Resource" : "arn:aws:s3:::${var.SCRIPT_BUCKET}/*"
       },
       {
         "Effect" : "Allow",

@@ -1,5 +1,4 @@
 variable "SECRET_MANAGER_ID" {}
-variable "SEARCH_ENGINE_ENDPOINT" {}
 variable "SEARCH_ENGINE_MASTER_KEY" {}
 
 locals {
@@ -12,11 +11,10 @@ resource "null_resource" "appsync_lambda_authorizer" {
   }
   provisioner "local-exec" {
     command = format(
-      "%s/%s %s https://%s %s",
+      "%s/%s %s %s",
       local.root_path,
       "scripts/update_secret.sh",
       var.SECRET_MANAGER_ID,
-      var.SEARCH_ENGINE_ENDPOINT,
       var.SEARCH_ENGINE_MASTER_KEY
     )
   }
