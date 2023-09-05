@@ -49,13 +49,13 @@ resource "aws_ecs_service" "mail_queue" {
 }
 
 module "MAIL_SQS_AUTO_SCALE" {
-  source                  = "./sqs_auto_scale"
-  SERVICE_NAME            = aws_ecs_service.mail_queue.name
-  ECS_CLUSTER_NAME        = var.ECS_CLUSTER_NAME
-  MIN_CAPACITY            = var.MIN_CAPACITY
-  MAX_CAPACITY            = var.MAX_CAPACITY
+  source                 = "./sqs_auto_scale"
+  SERVICE_NAME           = aws_ecs_service.mail_queue.name
+  ECS_CLUSTER_NAME       = var.ECS_CLUSTER_NAME
+  MIN_CAPACITY           = var.MIN_CAPACITY
+  MAX_CAPACITY           = var.MAX_CAPACITY
   MAIL_SERVICE_QUEUE_URL = var.MAIL_SERVICE_QUEUE_URL
-  MESSAGE_PER_TASK        = var.MESSAGE_PER_TASK
-  TAGS                    = var.TAGS
+  MESSAGE_PER_TASK       = var.MESSAGE_PER_TASK
+  TAGS                   = var.TAGS
 }
 

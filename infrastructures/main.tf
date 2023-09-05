@@ -45,11 +45,13 @@ module "REMOTE_STATE" {
 }
 
 module "MAIL_LOAD_BALANCER" {
-  source     = "../../modules/application/alb"
-  VPC_ID     = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
-  LB_ARN     = module.REMOTE_STATE.STATE.MARKETING.search.lb_arn
-  DOMAIN_ARN = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.api_gateway
-  TAGS       = local.tags
+  source             = "../../modules/application/alb"
+  VPC_ID             = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
+  LB_ARN             = module.REMOTE_STATE.STATE.MARKETING.search.lb_arn
+  LB_FRONT_END_HTTPS = module.REMOTE_STATE.STATE.MARKETING.search.lb_front_end_https_arn
+  LB_FRONT_END_HTTP  = module.REMOTE_STATE.STATE.MARKETING.search.lb_front_end_http_arn
+  DOMAIN_ARN         = module.REMOTE_STATE.STATE.COMMON_CONFIG.route53.hosted_zone.domain.certificate.api_gateway
+  TAGS               = local.tags
 }
 
 module "ECS" {
@@ -75,7 +77,7 @@ module "ECS" {
   MAIL_QUEUE_TASK_ENV = merge(
     local.env_vars.standard_vars,
     {
-      MAIL_SERVICE_QUEUE_URL            = module.MAIL_QUEUE.mail_queue_url
+      MAIL_SERVICE_QUEUE_URL             = module.MAIL_QUEUE.mail_queue_url
       MAIL_MAX_MESSAGE_PER_SERVICE_TASK  = tostring(local.MESSAGE_PER_TASK)
       "spring.profiles.active"           = "mail_queue"
       "spring.main.web-application-type" = "none"
@@ -88,7 +90,7 @@ module "ECS" {
   VPC_ID                   = module.REMOTE_STATE.STATE.MARKETING.backend.vpc.id
   MAIL_TARGET_GROUP_ARN    = module.MAIL_LOAD_BALANCER.mail_lb_target_group_arn
   SEARCH_TARGET_GROUP_ARN  = module.MAIL_LOAD_BALANCER.search_lb_target_group_arn
-  MAIL_SERVICE_QUEUE_URL  = module.MAIL_QUEUE.mail_queue_name
+  MAIL_SERVICE_QUEUE_URL   = module.MAIL_QUEUE.mail_queue_name
   MESSAGE_PER_TASK         = local.MESSAGE_PER_TASK
   MEILI_SEARCH_MASTER_KEY  = local.MEILI_SEARCH_MASTER_KEY
   SEARCH_MESSAGE_QUEUE_URL = module.MAIL_QUEUE.search_queue_url

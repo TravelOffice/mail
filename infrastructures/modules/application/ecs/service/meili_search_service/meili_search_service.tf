@@ -50,14 +50,14 @@ locals {
     format("%s/%s", path.module, "user_data.tftpl"),
     {
       // Script
-      bootstrap_script  = "${var.SCRIPT_BUCKET}/mail/search/bootstrap_script",
+      bootstrap_script = "${var.SCRIPT_BUCKET}/mail/search/bootstrap_script",
     }
   )
 }
 
 resource "aws_s3_object" "bootstrap_script" {
-  bucket = var.SCRIPT_BUCKET
-  key    = "mail/search/bootstrap_script"
+  bucket  = var.SCRIPT_BUCKET
+  key     = "mail/search/bootstrap_script"
   content = local.bootstrap_script
   # etag   = filemd5(local.user_data)
 }
