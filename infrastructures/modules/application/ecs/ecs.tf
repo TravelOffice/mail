@@ -140,22 +140,22 @@ module "ECS_MAIL_QUEUE_TASK_DEFINITION" {
 }
 
 module "ECS_MAIL_QUEUE_SERVICE" {
-  source                  = "./service/mail_queue_service"
-  ENV                     = var.ENV
-  FEATURE_NAME            = var.FEATURE_NAME
-  SERVICE_NAME            = "${var.ENV}-${var.FEATURE_NAME}-service"
-  ECS_CLUSTER_ID          = module.ECS_CLUSTER.cluster_id
-  ECS_CLUSTER_NAME        = local.cluster_name
-  MAIL_TASK_ARN           = module.ECS_MAIL_QUEUE_TASK_DEFINITION.task_arn
+  source                 = "./service/mail_queue_service"
+  ENV                    = var.ENV
+  FEATURE_NAME           = var.FEATURE_NAME
+  SERVICE_NAME           = "${var.ENV}-${var.FEATURE_NAME}-service"
+  ECS_CLUSTER_ID         = module.ECS_CLUSTER.cluster_id
+  ECS_CLUSTER_NAME       = local.cluster_name
+  MAIL_TASK_ARN          = module.ECS_MAIL_QUEUE_TASK_DEFINITION.task_arn
   MAIL_SERVICE_QUEUE_URL = var.MAIL_SERVICE_QUEUE_URL
-  MESSAGE_PER_TASK        = var.MESSAGE_PER_TASK
-  DESIRED_COUNT           = 1
-  MIN_CAPACITY            = 1
-  MAX_CAPACITY            = 5
-  CONTAINER_NAME          = lower("${var.ENV}-${var.FEATURE_NAME}")
-  SUBNETS                 = var.PRIVATE_SUBNETS
-  VPC_ID                  = var.VPC_ID
-  TAGS                    = var.TAGS
+  MESSAGE_PER_TASK       = var.MESSAGE_PER_TASK
+  DESIRED_COUNT          = 1
+  MIN_CAPACITY           = 1
+  MAX_CAPACITY           = 5
+  CONTAINER_NAME         = lower("${var.ENV}-${var.FEATURE_NAME}")
+  SUBNETS                = var.PRIVATE_SUBNETS
+  VPC_ID                 = var.VPC_ID
+  TAGS                   = var.TAGS
 }
 
 

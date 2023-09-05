@@ -1,18 +1,9 @@
 variable "VPC_ID" {}
 variable "LB_ARN" {}
+variable "LB_FRONT_END_HTTPS" {}
+variable "LB_FRONT_END_HTTP" {}
 variable "DOMAIN_ARN" {}
 variable "TAGS" {}
-
-locals {
-  https_listeners = [
-    {
-      port               = 443
-      protocol           = "HTTPS"
-      certificate_arn    = var.DOMAIN_ARN
-      target_group_index = 0
-    }
-  ]
-}
 
 variable "target_groups" {
   type = any
@@ -55,22 +46,6 @@ variable "target_groups" {
   ]
 }
 
-variable "http_tcp_listeners" {
-  type = any
-  default = [
-    {
-      port        = 80
-      protocol    = "HTTP"
-      action_type = "redirect"
-      redirect = {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
-  ]
-}
-
 variable "https_listener_rules" {
   type = any
   default = [
@@ -86,29 +61,31 @@ variable "https_listener_rules" {
         {
           path_patterns = [
             "/mail/search",
-            "/mail/search/*",
-            "/static/*",
-            "/manifest.json",
+            "/mail/search/*"
           ]
         }
       ]
+      # For mail priority can comes from 1 to 09
+      priority = 01
     },
     {
       https_listener_index = 0
       actions = [
         {
           type               = "forward"
-          target_group_index = 1
+          target_group_index = 0
         }
       ]
       conditions = [
         {
-          http_headers = [{
-            http_header_name = "x-meilisearch-client"
-            values           = ["*"]
-          }]
+          path_patterns = [
+            "/mail",
+            "/mail/*"
+          ]
         }
       ]
+      # For mail priority can comes from 1 to 09
+      priority = 02
     }
   ]
 }
@@ -178,7 +155,7 @@ resource "aws_lb_target_group" "main" {
 resource "aws_lb_listener_rule" "https_listener_rule" {
   count = length(var.https_listener_rules)
 
-  listener_arn = aws_lb_listener.frontend_https[lookup(var.https_listener_rules[count.index], "https_listener_index", count.index)].arn
+  listener_arn = var.LB_FRONT_END_HTTPS
   priority     = lookup(var.https_listener_rules[count.index], "priority", null)
 
   # authenticate-cognito actions
@@ -424,7 +401,7 @@ resource "aws_lb_listener_rule" "https_listener_rule" {
 resource "aws_lb_listener_rule" "http_tcp_listener_rule" {
   count = length(var.http_tcp_listener_rules)
 
-  listener_arn = aws_lb_listener.frontend_http_tcp[lookup(var.http_tcp_listener_rules[count.index], "http_tcp_listener_index", count.index)].arn
+  listener_arn = var.LB_FRONT_END_HTTP
   priority     = lookup(var.http_tcp_listener_rules[count.index], "priority", null)
 
   # redirect actions
@@ -617,175 +594,10 @@ resource "aws_lb_listener_rule" "http_tcp_listener_rule" {
   )
 }
 
-resource "aws_lb_listener" "frontend_http_tcp" {
-  count = length(var.http_tcp_listeners)
-
-  load_balancer_arn = var.LB_ARN
-
-  port     = var.http_tcp_listeners[count.index]["port"]
-  protocol = var.http_tcp_listeners[count.index]["protocol"]
-
-  dynamic "default_action" {
-    for_each = length(keys(var.http_tcp_listeners[count.index])) == 0 ? [] : [var.http_tcp_listeners[count.index]]
-
-    # Defaults to forward action if action_type not specified
-    content {
-      type             = lookup(default_action.value, "action_type", "forward")
-      target_group_arn = contains([null, "", "forward"], lookup(default_action.value, "action_type", "")) ? aws_lb_target_group.main[lookup(default_action.value, "target_group_index", count.index)].id : null
-
-      dynamic "redirect" {
-        for_each = length(keys(lookup(default_action.value, "redirect", {}))) == 0 ? [] : [lookup(default_action.value, "redirect", {})]
-
-        content {
-          path        = lookup(redirect.value, "path", null)
-          host        = lookup(redirect.value, "host", null)
-          port        = lookup(redirect.value, "port", null)
-          protocol    = lookup(redirect.value, "protocol", null)
-          query       = lookup(redirect.value, "query", null)
-          status_code = redirect.value["status_code"]
-        }
-      }
-
-      dynamic "fixed_response" {
-        for_each = length(keys(lookup(default_action.value, "fixed_response", {}))) == 0 ? [] : [lookup(default_action.value, "fixed_response", {})]
-
-        content {
-          content_type = fixed_response.value["content_type"]
-          message_body = lookup(fixed_response.value, "message_body", null)
-          status_code  = lookup(fixed_response.value, "status_code", null)
-        }
-      }
-
-      dynamic "forward" {
-        for_each = length(keys(lookup(default_action.value, "forward", {}))) == 0 ? [] : [lookup(default_action.value, "forward", {})]
-
-        content {
-          dynamic "target_group" {
-            for_each = forward.value["target_groups"]
-
-            content {
-              arn    = aws_lb_target_group.main[target_group.value["target_group_index"]].id
-              weight = lookup(target_group.value, "weight", null)
-            }
-          }
-
-          dynamic "stickiness" {
-            for_each = length(keys(lookup(forward.value, "stickiness", {}))) == 0 ? [] : [lookup(forward.value, "stickiness", {})]
-
-            content {
-              enabled  = lookup(stickiness.value, "enabled", false)
-              duration = lookup(stickiness.value, "duration", 60)
-            }
-          }
-        }
-      }
-    }
-  }
-
-  tags = merge(
-    var.TAGS,
-    lookup(var.http_tcp_listeners[count.index], "tags", {}),
-  )
-}
-
-resource "aws_lb_listener" "frontend_https" {
-  count = length(local.https_listeners)
-
-  load_balancer_arn = var.LB_ARN
-
-  port            = local.https_listeners[count.index]["port"]
-  protocol        = lookup(local.https_listeners[count.index], "protocol", "HTTPS")
-  certificate_arn = local.https_listeners[count.index]["certificate_arn"]
-  ssl_policy      = lookup(local.https_listeners[count.index], "ssl_policy", var.listener_ssl_policy_default)
-  alpn_policy     = lookup(local.https_listeners[count.index], "alpn_policy", null)
-
-  dynamic "default_action" {
-    for_each = length(keys(local.https_listeners[count.index])) == 0 ? [] : [local.https_listeners[count.index]]
-
-    # Defaults to forward action if action_type not specified
-    content {
-      type             = lookup(default_action.value, "action_type", "forward")
-      target_group_arn = contains([null, "", "forward"], lookup(default_action.value, "action_type", "")) ? aws_lb_target_group.main[lookup(default_action.value, "target_group_index", count.index)].id : null
-
-      dynamic "redirect" {
-        for_each = length(keys(lookup(default_action.value, "redirect", {}))) == 0 ? [] : [lookup(default_action.value, "redirect", {})]
-
-        content {
-          path        = lookup(redirect.value, "path", null)
-          host        = lookup(redirect.value, "host", null)
-          port        = lookup(redirect.value, "port", null)
-          protocol    = lookup(redirect.value, "protocol", null)
-          query       = lookup(redirect.value, "query", null)
-          status_code = redirect.value["status_code"]
-        }
-      }
-
-      dynamic "fixed_response" {
-        for_each = length(keys(lookup(default_action.value, "fixed_response", {}))) == 0 ? [] : [lookup(default_action.value, "fixed_response", {})]
-
-        content {
-          content_type = fixed_response.value["content_type"]
-          message_body = lookup(fixed_response.value, "message_body", null)
-          status_code  = lookup(fixed_response.value, "status_code", null)
-        }
-      }
-
-      # Authentication actions only available with HTTPS listeners
-      dynamic "authenticate_cognito" {
-        for_each = length(keys(lookup(default_action.value, "authenticate_cognito", {}))) == 0 ? [] : [lookup(default_action.value, "authenticate_cognito", {})]
-
-        content {
-          # Max 10 extra params
-          authentication_request_extra_params = lookup(authenticate_cognito.value, "authentication_request_extra_params", null)
-          on_unauthenticated_request          = lookup(authenticate_cognito.value, "on_authenticated_request", null)
-          scope                               = lookup(authenticate_cognito.value, "scope", null)
-          session_cookie_name                 = lookup(authenticate_cognito.value, "session_cookie_name", null)
-          session_timeout                     = lookup(authenticate_cognito.value, "session_timeout", null)
-          user_pool_arn                       = authenticate_cognito.value["user_pool_arn"]
-          user_pool_client_id                 = authenticate_cognito.value["user_pool_client_id"]
-          user_pool_domain                    = authenticate_cognito.value["user_pool_domain"]
-        }
-      }
-
-      dynamic "authenticate_oidc" {
-        for_each = length(keys(lookup(default_action.value, "authenticate_oidc", {}))) == 0 ? [] : [lookup(default_action.value, "authenticate_oidc", {})]
-
-        content {
-          # Max 10 extra params
-          authentication_request_extra_params = lookup(authenticate_oidc.value, "authentication_request_extra_params", null)
-          authorization_endpoint              = authenticate_oidc.value["authorization_endpoint"]
-          client_id                           = authenticate_oidc.value["client_id"]
-          client_secret                       = authenticate_oidc.value["client_secret"]
-          issuer                              = authenticate_oidc.value["issuer"]
-          on_unauthenticated_request          = lookup(authenticate_oidc.value, "on_unauthenticated_request", null)
-          scope                               = lookup(authenticate_oidc.value, "scope", null)
-          session_cookie_name                 = lookup(authenticate_oidc.value, "session_cookie_name", null)
-          session_timeout                     = lookup(authenticate_oidc.value, "session_timeout", null)
-          token_endpoint                      = authenticate_oidc.value["token_endpoint"]
-          user_info_endpoint                  = authenticate_oidc.value["user_info_endpoint"]
-        }
-      }
-    }
-  }
-
-  dynamic "default_action" {
-    for_each = contains(["authenticate-oidc", "authenticate-cognito"], lookup(local.https_listeners[count.index], "action_type", {})) ? [local.https_listeners[count.index]] : []
-    content {
-      type             = "forward"
-      target_group_arn = aws_lb_target_group.main[lookup(default_action.value, "target_group_index", count.index)].id
-    }
-  }
-
-  tags = merge(
-    var.TAGS,
-    lookup(local.https_listeners[count.index], "tags", {}),
-  )
-}
-
 resource "aws_lb_listener_certificate" "https_listener" {
   count = length(var.extra_ssl_certs)
 
-  listener_arn    = aws_lb_listener.frontend_https[var.extra_ssl_certs[count.index]["https_listener_index"]].arn
+  listener_arn    = var.LB_FRONT_END_HTTPS
   certificate_arn = var.extra_ssl_certs[count.index]["certificate_arn"]
 }
 
