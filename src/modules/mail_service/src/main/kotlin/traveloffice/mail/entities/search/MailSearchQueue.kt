@@ -1,6 +1,6 @@
 package traveloffice.mail.entities.search
 
-import com.meilisearch.sdk.Settings
+import com.meilisearch.sdk.model.Settings
 
 class MailSearchQueue {
     lateinit var type: String

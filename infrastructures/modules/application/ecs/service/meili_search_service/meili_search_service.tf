@@ -45,7 +45,7 @@ locals {
       process_search_query_script = file(format("%s/%s", path.module, "process_search_queue.py")),
     }
   )
-  instance_type = var.ENV == "dev" ? "t3.medium" : "t3.medium"
+  instance_type = var.ENV == "dev" ? "t2.micro" : "t3.medium"
   user_data = templatefile(
     format("%s/%s", path.module, "user_data.tftpl"),
     {
