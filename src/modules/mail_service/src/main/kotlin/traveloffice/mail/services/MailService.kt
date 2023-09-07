@@ -38,6 +38,7 @@ import traveloffice.mail.exceptions.InvalidArguments
 import traveloffice.mail.exceptions.MailBoxIsStillSyncing
 import traveloffice.mail.exceptions.MailBoxNotExisted
 import traveloffice.mail.repositories.MailRepository
+import traveloffice.mail.repositories.SearchRepository
 import java.util.*
 import java.util.stream.Collectors
 
@@ -49,6 +50,9 @@ class MailService {
 
     @Autowired
     lateinit var mailRepository: MailRepository
+
+    @Autowired
+    lateinit var searchRepository: SearchRepository
 
     var logger: Logger = LoggerFactory.getLogger(MailRepository::class.java)
 
@@ -664,6 +668,24 @@ class MailService {
         } catch (e: Exception) {
             logger.error(e.toString())
             throw e
+        }
+    }
+
+    /**
+     * Get the mail search token for specific tenant user [authenticatedUser]
+     *
+     * Returns [String] of search token
+     */
+    fun getSearchToken(authenticatedUser: AuthenticatedUser): String? {
+        return try {
+            // Extract tenant data
+            val (tenant, username) = authenticatedUser
+            val apiKey = searchRepository.generateApiKeys(tenant, username)
+                ?: throw Exception("Cannot get search api key for tenant [$tenant] user [$username]")
+            searchRepository.generateSearchToken(apiKey)
+        } catch (e: Exception) {
+            logger.error(e.toString())
+            ""
         }
     }
 }

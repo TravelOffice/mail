@@ -250,6 +250,21 @@ class MailController {
         )
     }
 
+    @GetMapping("/search-token")
+    fun getSearchToken(): ResponseEntity<ResponseBody<String>> {
+        // Get user that own Cognito token
+        val authenticatedUser = SecurityContextHolder.getContext().getUser()
+        // Get search token for tenant user
+        val searchToken = mailService.getSearchToken(authenticatedUser)
+        return ResponseEntity.ok(
+            ResponseBody(
+                code = "SUCCESS",
+                data = searchToken,
+                message = "Get user's search token information successfully"
+            )
+        )
+    }
+
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun handleValidationExceptions(

@@ -2,7 +2,7 @@ package traveloffice.mail.entities.search
 
 import com.google.gson.GsonBuilder
 import com.google.gson.annotations.Expose
-import com.meilisearch.sdk.Settings
+import com.meilisearch.sdk.model.Settings
 import traveloffice.mail.entities.EmailAddress
 
 data class MailMessageSearch(
