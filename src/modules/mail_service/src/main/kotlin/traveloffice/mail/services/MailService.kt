@@ -334,12 +334,14 @@ class MailService {
      * @exception
      */
     fun linkEmail(mailAccount: MailAccount, authenticatedUser: AuthenticatedUser) = try {
+        val (tenant, username) = authenticatedUser
         // Validate mail account information by this step
         mailRepository.validateMailAccount(mailAccount, authenticatedUser)
         // Encrypt password
         val encryptionKey = this.secretManagerService.getAWSSecretValue(Constant.ENCRYPT_SECRET_KEY)
         // Save mail account information to dynamodb
         mailRepository.linkEmail(mailAccount, authenticatedUser, encryptionKey)
+        searchRepository.invalidateApiKey(tenant, username)
         logger.info("Link mail account ${mailAccount.email} successfully")
     } catch (e: Exception) {
         logger.error(e.toString())
@@ -423,6 +425,7 @@ class MailService {
         val mailAccount = this.mailRepository.getMailAccount(tenant, username, mail)
         // Unlink email and also remove all mail information
         mailRepository.unlinkEmail(tenant, username, mailAccount)
+        searchRepository.invalidateApiKey(tenant, username)
         logger.info("Unlink mail account $mail successfully")
     } catch (e: Exception) {
         logger.error(e.toString())

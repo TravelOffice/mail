@@ -57,8 +57,8 @@ class SearchRepository {
     }
 
     private fun getApiKey(tenant: String, username: String): String? {
-        val pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}"
-        val sk = "${SEARCH_INDEX}#${SEARCH_API_KEY_INDEX}"
+        val pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${SEARCH_INDEX}"
+        val sk = SEARCH_API_KEY_INDEX
         val result = this.dynamoDBMapper.load(
             SearchApiKey::class.java, pk, sk
         ) ?: return null
@@ -67,10 +67,17 @@ class SearchRepository {
 
     private fun createApiKey(tenant: String, username: String, apiKey: String) {
         val searchApiKey = SearchApiKey()
-        searchApiKey.pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}"
-        searchApiKey.sk = "${SEARCH_INDEX}#${SEARCH_API_KEY_INDEX}"
+        searchApiKey.pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${SEARCH_INDEX}"
+        searchApiKey.sk = SEARCH_API_KEY_INDEX
         searchApiKey.apiKey = apiKey
         this.dynamoDBMapper.save(searchApiKey)
+    }
+
+    private fun deleteApiKey(tenant: String, username: String) {
+        val searchApiKey = SearchApiKey()
+        searchApiKey.pk = "${TENANT_INDEX}#${tenant}#${USER_INDEX}#${username}#${SEARCH_INDEX}"
+        searchApiKey.sk = SEARCH_API_KEY_INDEX
+        this.dynamoDBMapper.delete(searchApiKey)
     }
 
     private fun getUserMailIndexes(tenant: String, username: String): List<String> {
@@ -120,5 +127,14 @@ class SearchRepository {
             ?: throw Exception("Cannot create search API key for tenant [$tenant] user [$username]")
         this.createApiKey(tenant, username, searchApiKey.key)
         return searchApiKey.key
+    }
+
+    /**
+     * Invalidates (deletes) the API key associated with the given tenant and username.
+     * @param tenant The tenant identifier.
+     * @param username The username.
+     */
+    fun invalidateApiKey(tenant: String, username: String) {
+        return this.deleteApiKey(tenant, username)
     }
 }
