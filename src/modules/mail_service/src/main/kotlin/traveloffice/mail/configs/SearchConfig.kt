@@ -16,7 +16,7 @@ class SearchConfig {
     fun getSearchProvider(@Autowired secretManagerService: SecretManagerService): SearchProvider {
         val searchQueueUrl = secretManagerService.getEnv("MAIL_SEARCH_QUEUE_URL")
         val region = secretManagerService.getEnv("AWS_REGION")
-        val searchURL = secretManagerService.getAWSSecretValue("SEARCH_ENGINE_ENDPOINT")
+        val searchURL = "${secretManagerService.getAWSSecretValue("SEARCH_ENGINE_ENDPOINT")}/mail/search"
         val searchKey = secretManagerService.getAWSSecretValue("SEARCH_ENGINE_MASTER_KEY")
         return SearchProvider(searchURL, searchKey, searchQueueUrl, region)
     }
