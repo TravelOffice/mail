@@ -38,7 +38,7 @@ dependencies {
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
 	implementation("org.jsoup:jsoup:1.15.3")
 	implementation("org.mnode.ical4j:ical4j:3.2.5")
-	implementation("com.meilisearch.sdk:meilisearch-java:0.11.1")
+	implementation("com.meilisearch.sdk:meilisearch-java:0.11.2")
 	implementation("dnsjava:dnsjava:3.5.1")
 }
 

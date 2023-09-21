@@ -331,7 +331,7 @@ class MailRepository {
             // Check the exp date
             val expDate = oauth2Token.expires_in
             val now = Date().time.div(1000L)
-            if (expDate >= now) {
+            if (expDate <= now) {
                 // refresh token
                 val oAuth2Provider = oAuth2ProviderFactory.makeProvider(mailAccount.provider)
                 val newToken = oAuth2Provider.refreshEmailToken(oauth2Token.refresh_token!!)

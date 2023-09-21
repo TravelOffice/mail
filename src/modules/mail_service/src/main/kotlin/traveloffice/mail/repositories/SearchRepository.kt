@@ -114,7 +114,7 @@ class SearchRepository {
             val searchApiKey = searchProvider.getApiKey(apiKey)
             val currentTime = Date()
             val comparison = currentTime.compareTo(searchApiKey.expiresAt)
-            if (comparison <= 0) {
+            if (comparison >= 0) {
                 searchProvider.deleteApiKey(apiKey)
             } else {
                 return apiKey
