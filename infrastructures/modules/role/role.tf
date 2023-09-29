@@ -5,7 +5,7 @@ variable "NAME" {}
 variable "TAGS" {}
 
 data "http" "custom_policy" {
-  url = "https://raw.githubusercontent.com/TravelOffice/infrastructure-constant/master/custom_policy.json"
+  url = "https://raw.githubusercontent.com/TravelOffice/constant/master/custom_policy.json"
 }
 locals {
   custom_policies = flatten([
